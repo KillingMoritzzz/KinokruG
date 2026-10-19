@@ -48,8 +48,7 @@ body{background:#0f1014;overflow-x:hidden}
 .tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #wall{position:fixed;inset:0;z-index:0;overflow:hidden;opacity:.5;transition:opacity .4s;cursor:grab;touch-action:pan-y;user-select:none;-webkit-user-select:none}
 #wall.drag{cursor:grabbing}
-body.wallmode #wall{opacity:1;touch-action:none}
-body.wallmode .wrap{display:none}
+body.home .wrap{display:none}
 .wall-in{position:absolute;left:0;top:0;will-change:transform}
 .wcol{position:absolute;top:0;will-change:transform}
 .strip{display:flex;flex-direction:column;gap:12px}
@@ -59,18 +58,77 @@ body.wallmode .wrap{display:none}
 .p .cap{position:absolute;left:0;right:0;bottom:0;padding:30px 10px 9px;font-size:12px;line-height:1.35;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.88));opacity:0;transition:opacity .2s}
 .p:hover .cap,.p:focus-visible .cap{opacity:1}
 .p:focus-visible{outline:2px solid var(--accent)}
-#wallui{display:none;position:fixed;z-index:2;left:50%;bottom:20px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 24px);gap:12px;align-items:center;background:rgba(15,16,20,.9);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 8px 8px 16px;color:var(--muted);font-size:14px}
-body.wallmode #wallui{display:flex}
 .wall-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--muted)}
+
+body.landing #wall,body.home #wall{opacity:1;touch-action:none}
+body.landing .wrap{display:none}
+#hero{display:none;position:fixed;inset:0;z-index:2;align-items:center;justify-content:center;padding:20px;pointer-events:none;background:radial-gradient(ellipse at center,rgba(15,16,20,.78) 0%,rgba(15,16,20,.35) 55%,rgba(15,16,20,0) 80%)}
+body.landing #hero{display:flex}
+.hero-card{pointer-events:auto;width:100%;max-width:440px;text-align:center;background:rgba(15,16,20,.86);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;padding:34px 28px 26px}
+.hero-card h1{font-size:42px;margin:0 0 10px}
+.hero-card p{margin:0 0 22px;color:var(--muted)}
+.btn.big{display:inline-block;padding:13px 28px;font-size:17px;border-radius:10px}
+.hero-note{margin-top:14px;font-size:13px;color:var(--muted)}
+.hero-note a{cursor:pointer;text-decoration:underline}
+.hero-stats{margin-top:16px;font-size:13px;color:var(--muted)}
+.hero-stats:empty{display:none}
+#heroMsg .msg{text-align:left;margin-bottom:16px}
+
+body.home,body.landing{overflow:hidden}
+#home{display:none;position:fixed;inset:0;z-index:2;align-items:center;justify-content:center;padding:20px 16px;pointer-events:none;background:radial-gradient(ellipse at center,rgba(15,16,20,.62) 0%,rgba(15,16,20,.25) 55%,rgba(15,16,20,0) 80%)}
+body.home #home{display:flex}
+.home-in{width:100%;max-width:640px;text-align:center;margin-top:-6vh}
+.home-in h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;text-shadow:0 2px 18px rgba(0,0,0,.75);overflow-wrap:anywhere}
+.home-in p{margin:0 0 22px;font-size:18px;color:#d9dcef;text-shadow:0 1px 12px rgba(0,0,0,.75)}
+.search{pointer-events:auto;position:relative}
+.search svg{position:absolute;left:20px;top:50%;transform:translateY(-50%);opacity:.75}
+.search input{width:100%;font-size:18px;color:#fff;padding:17px 22px 17px 54px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.12);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);outline:none}
+.search input::placeholder{color:rgba(255,255,255,.65)}
+.search input:focus{border-color:var(--accent);background:rgba(255,255,255,.17)}
+#results{display:none;pointer-events:auto;margin-top:10px;text-align:left;max-height:46vh;overflow:auto;background:rgba(15,16,20,.9);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:16px;padding:6px}
+#results.on{display:block}
+.res{display:flex;gap:12px;align-items:center;padding:8px;border-radius:10px;cursor:pointer}
+.res:hover,.res.act{background:rgba(255,255,255,.09)}
+.res img,.res .th{width:40px;height:60px;border-radius:4px;object-fit:cover;background:var(--line);flex:none}
+.rt b{display:block}
+.rt small{color:var(--muted)}
+.none{padding:14px;color:var(--muted);text-align:center}
+#topbar{display:none;position:fixed;z-index:3;top:14px;right:14px;gap:12px;align-items:center;flex-wrap:wrap;justify-content:flex-end;color:#d9dcef;font-size:14px;background:rgba(15,16,20,.6);backdrop-filter:blur(10px);padding:6px 14px 6px 6px;border-radius:999px;border:1px solid var(--line)}
+#topbar a{color:#d9dcef}
+body.home #topbar{display:flex}
+#modal{display:none;position:fixed;inset:0;z-index:5;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.62)}
+.modal-in{position:relative;width:100%;max-width:420px;max-height:92vh;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:18px}
+.modal-in .card{border:0;padding:0;background:none}
+.modal-in .card h2{padding-right:22px}
+.modal-in .btn{margin-top:12px}
+.x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--muted);font-size:26px;line-height:1;cursor:pointer}
 </style>
 </head>
 <body>
 <div id="wall" aria-label="Стена постеров"></div>
-<div id="wallui"><span>Тяните, чтобы листать. Нажмите на постер, чтобы открыть IMDb.</span><button class="btn" id="toList">К рейтингу</button></div>
+<div id="home"><div class="home-in">
+  <h1 id="hello"></h1>
+  <p id="hello2"></p>
+  <div class="search">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Найти фильм на сайте" autocomplete="off" aria-label="Поиск фильма">
+  </div>
+  <div id="results"></div>
+</div></div>
+<div id="topbar"><button class="btn ghost" id="toRating">Весь рейтинг</button><span id="topName"></span><a href="/auth/logout">Выйти</a></div>
+<div id="modal"><div class="modal-in"><button class="x" id="mclose" aria-label="Закрыть">×</button><div id="modalBody"></div></div></div>
+<div id="hero"><div class="hero-card">
+  <h1 id="heroTitle"></h1>
+  <p>Оцениваем фильмы вместе: рейтинг IMDb и оценки участников нашего сервера Discord.</p>
+  <div id="heroMsg"></div>
+  <a class="btn big" href="/auth/login">Войти через Discord</a>
+  <div class="hero-note">Вход только для участников сервера. <a id="guest">Смотреть рейтинг без входа</a></div>
+  <div class="hero-stats" id="heroStats"></div>
+</div></div>
 <div class="wrap">
   <header>
     <h1 id="site"></h1>
-    <div class="tools"><button class="btn ghost" id="toWall">Стена постеров</button><div class="who" id="who"></div></div>
+    <div class="tools"><button class="btn ghost" id="toHome">На главную</button><div class="who" id="who"></div></div>
   </header>
   <p class="sub">Рейтинг IMDb и оценки участников нашего сервера Discord.</p>
   <div id="msg"></div>
@@ -109,7 +167,7 @@ const api = async (url, method = 'GET', body) => {
 const fmt = n => n == null ? '—' : n.toFixed(1).replace('.', ',');
 let me = null, films = [];
 
-function say(text) { $('#msg').replaceChildren(text ? h('div', { class: 'msg' }, text) : ''); }
+function say(text) { for (const sel of ['#msg', '#heroMsg']) $(sel).replaceChildren(text ? h('div', { class: 'msg' }, text) : ''); }
 
 function renderWho() {
   $('#who').replaceChildren(me
@@ -143,7 +201,10 @@ function render() {
   const key = f => m === 'imdb' ? f.imdb ?? -1 : m === 'diff' ? (f.srv == null || f.imdb == null ? -99 : f.srv - f.imdb) : f.srv ?? -1;
   if (m !== 'new') list.sort((a, b) => key(b) - key(a));
   if (!list.length) { $('#grid').replaceChildren(h('div', { class: 'empty' }, me?.admin ? 'Добавьте первый фильм по IMDb ID.' : 'Фильмов пока нет.')); return; }
-  $('#grid').replaceChildren(...list.map(f => {
+  $('#grid').replaceChildren(...list.map(cardEl));
+}
+
+function cardEl(f) {
     const btns = [];
     for (let i = 1; i <= 10; i++) btns.push(h('button', {
       class: f.mine === i ? 'on' : '', disabled: !me,
@@ -159,10 +220,14 @@ function render() {
         h('div', { class: 'vote' }, ...btns),
         h('div', { class: 'hint' }, me ? (f.mine ? `Ваша оценка: ${f.mine}. Нажмите на неё ещё раз, чтобы убрать.` : 'Выберите оценку от 1 до 10') : 'Войдите через Discord, чтобы оценить'),
         me?.admin ? h('button', { class: 'del', onclick: async () => { if (confirm('Удалить «' + f.title + '» вместе с оценками?')) { await api('/api/films/' + f.id, 'DELETE'); await load(); } } }, 'Удалить фильм') : null));
-  }));
 }
 
-async function load() { films = await api('/api/films'); render(); Wall.set(films); }
+const plural = (n, a, b, c) => { const m = n % 100, d = n % 10; return m > 10 && m < 20 ? c : d === 1 ? a : d > 1 && d < 5 ? b : c; };
+function renderHero() {
+  const n = films.reduce((t, f) => t + f.n, 0);
+  $('#heroStats').textContent = films.length ? `${films.length} ${plural(films.length, 'фильм', 'фильма', 'фильмов')} · ${n} ${plural(n, 'оценка', 'оценки', 'оценок')}` : '';
+}
+async function load() { films = await api('/api/films'); render(); Wall.set(films); renderHero(); renderModal(); runSearch(); }
 
 const Wall = (() => {
   const root = $('#wall'), G = 12, C = 7;
@@ -199,8 +264,10 @@ const Wall = (() => {
     inner.style.transform = `translate3d(${-mod(ox, C * colStep)}px,0,0)`;
     for (const c of cols) c.el.style.transform = `translate3d(0,${mod(-oy + c.phase, P) - P}px,0)`;
   }
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   function tick() {
     if (!drag && (Math.abs(vx) > .1 || Math.abs(vy) > .1)) { ox += vx; oy += vy; vx *= .94; vy *= .94; paint(); }
+    else if (!drag && !still && !document.hidden && /\b(landing|home)\b/.test(document.body.className)) { oy += .4; paint(); }
     requestAnimationFrame(tick);
   }
   root.addEventListener('pointerdown', e => { if (e.button) return; drag = { x: e.clientX, y: e.clientY }; moved = 0; vx = vy = 0; });
@@ -216,13 +283,9 @@ const Wall = (() => {
   root.addEventListener('pointercancel', end);
   root.addEventListener('click', e => { if (suppress) { e.preventDefault(); e.stopPropagation(); } }, true);
   root.addEventListener('wheel', e => {
-    if (!document.body.classList.contains('wallmode')) return;
+    if (!/\b(landing|home)\b/.test(document.body.className)) return;
     e.preventDefault(); ox += e.deltaX; oy += e.deltaY; paint();
   }, { passive: false });
-  const mode = on => document.body.classList.toggle('wallmode', on);
-  $('#toWall').addEventListener('click', () => mode(true));
-  $('#toList').addEventListener('click', () => mode(false));
-  addEventListener('keydown', e => { if (e.key === 'Escape') mode(false); });
   addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(build, 250); });
   requestAnimationFrame(tick);
   function set(films) {
@@ -235,8 +298,61 @@ const Wall = (() => {
   return { set };
 })();
 
+// --- главная после входа: приветствие и поиск ---
+let openId = null, found = [], active = 0;
+const norm = t => String(t || '').toLowerCase().replace(/ё/g, 'е');
+function setView(v) {
+  document.body.classList.remove('landing', 'home', 'list');
+  document.body.classList.add(v);
+  scrollTo(0, 0);
+  if (v === 'home') {
+    const hr = new Date().getHours();
+    const part = hr < 5 ? 'Доброй ночи' : hr < 12 ? 'Доброе утро' : hr < 18 ? 'Добрый день' : 'Добрый вечер';
+    const asks = ['Что сегодня смотрим?', 'Какой фильм ищем?', 'Найдём, что оценить?', 'Готовы к новому кино?'];
+    $('#hello').textContent = `${part}, ${me.name}`;
+    $('#hello2').textContent = asks[Math.floor(Math.random() * asks.length)];
+    $('#topName').textContent = me.name;
+    if (!matchMedia('(pointer: coarse)').matches) $('#q').focus();
+  }
+}
+function runSearch() {
+  const q = norm($('#q').value).trim(), box = $('#results');
+  if (!q) { box.classList.remove('on'); box.replaceChildren(); found = []; return; }
+  found = films.filter(f => norm(f.title + ' ' + (f.year || '') + ' ' + f.id).includes(q))
+    .sort((a, b) => (norm(b.title).startsWith(q) - norm(a.title).startsWith(q)) || (b.imdb ?? 0) - (a.imdb ?? 0)).slice(0, 8);
+  active = Math.min(active, Math.max(found.length - 1, 0));
+  box.classList.add('on');
+  box.replaceChildren(...(found.length ? found.map((f, i) => h('div', { class: 'res' + (i === active ? ' act' : ''), onclick: () => openFilm(f.id) },
+    f.poster ? h('img', { src: f.poster, alt: '', referrerpolicy: 'no-referrer' }) : h('span', { class: 'th' }),
+    h('div', { class: 'rt' }, h('b', {}, f.title), h('small', {}, `${f.year || ''} · IMDb ${fmt(f.imdb)} · сервер ${fmt(f.srv)}`))))
+    : [h('div', { class: 'none' }, films.length ? 'Такого фильма на сайте пока нет' : 'На сайте пока нет фильмов')]));
+}
+function openFilm(id) { openId = id; renderModal(); }
+function closeModal() { openId = null; renderModal(); }
+function renderModal() {
+  const f = films.find(x => x.id === openId);
+  $('#modal').style.display = f ? 'flex' : 'none';
+  if (f) $('#modalBody').replaceChildren(cardEl(f), h('a', { class: 'btn ghost', href: 'https://www.imdb.com/title/' + encodeURIComponent(f.id) + '/', target: '_blank', rel: 'noopener' }, 'Страница на IMDb'));
+  else openId = null;
+}
+$('#q').addEventListener('input', () => { active = 0; runSearch(); });
+$('#q').addEventListener('keydown', e => {
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && found.length) {
+    e.preventDefault(); active = (active + (e.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length; runSearch();
+  } else if (e.key === 'Enter' && found[active]) openFilm(found[active].id);
+});
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.id === 'mclose') closeModal(); });
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (openId) closeModal(); else if ($('#q').value) { $('#q').value = ''; runSearch(); }
+});
+$('#toRating').addEventListener('click', () => setView('list'));
+$('#toHome').addEventListener('click', () => setView(me ? 'home' : 'landing'));
+
 (async () => {
   $('#site').textContent = '🎬 ' + SITE;
+  $('#heroTitle').textContent = '🎬 ' + SITE;
+  $('#guest').addEventListener('click', () => setView('list'));
   $('#sort').addEventListener('change', render);
   const err = new URLSearchParams(location.search).get('error');
   if (err === 'notmember') say('Оценивать могут только участники нашего сервера Discord. Вступите на сервер и войдите снова.');
@@ -244,6 +360,7 @@ const Wall = (() => {
   if (err) history.replaceState(null, '', '/');
   try { me = await api('/api/me'); } catch {}
   renderWho(); renderAdmin();
+  setView(me ? 'home' : 'landing');
   try { await load(); } catch (e) { say(e.message); }
 })();
 </script>
