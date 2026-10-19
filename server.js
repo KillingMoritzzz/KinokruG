@@ -131,21 +131,28 @@ const upsert = f => pool.query(`
   on conflict (imdb_id) do update set title = $2, year = $3, poster = $4, imdb_rating = $5`,
   [f.id, f.title, f.year, f.poster, f.imdb]);
 
+// Можно передать сразу много IMDb ID или ссылок (до 30 за запрос)
 app.post('/api/films', needAdmin, async (req, res) => {
-  const id = String(req.body?.imdbId || '').match(/tt\d{7,9}/)?.[0];
-  if (!id) return res.status(400).json({ error: 'Укажите IMDb ID вида tt0111161 или ссылку на фильм' });
-  const f = await fetchOmdb(id);
-  if (!f) return res.status(404).json({ error: 'Фильм не найден в OMDb' });
-  await upsert(f);
-  res.json({ ok: true, title: f.title });
+  const ids = [...new Set(String(req.body?.imdbId || '').match(/tt\d{7,9}/g) || [])].slice(0, 30);
+  if (!ids.length) return res.status(400).json({ error: 'Укажите IMDb ID вида tt0111161 или ссылку на фильм' });
+  const have = new Set((await pool.query('select imdb_id from films where imdb_id = any($1)', [ids])).rows.map(r => r.imdb_id));
+  const todo = ids.filter(i => !have.has(i));
+  let added = 0; const failed = [];
+  for (let i = 0; i < todo.length; i += 5) {
+    await Promise.all(todo.slice(i, i + 5).map(async id => {
+      try { const f = await fetchOmdb(id); if (f) { await upsert(f); added++; } else failed.push(id); } catch { failed.push(id); }
+    }));
+  }
+  res.json({ ok: true, added, skipped: ids.length - todo.length, failed });
 });
 
 app.post('/api/films/refresh', needAdmin, async (req, res) => {
   const { rows } = await pool.query('select imdb_id from films');
   let updated = 0;
-  for (const { imdb_id } of rows) {
-    const f = await fetchOmdb(imdb_id);
-    if (f) { await upsert(f); updated++; }
+  for (let i = 0; i < rows.length; i += 5) {
+    await Promise.all(rows.slice(i, i + 5).map(async ({ imdb_id }) => {
+      try { const f = await fetchOmdb(imdb_id); if (f) { await upsert(f); updated++; } } catch {}
+    }));
   }
   res.json({ ok: true, updated });
 });
