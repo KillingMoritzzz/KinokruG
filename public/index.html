@@ -196,7 +196,7 @@ function renderAdmin() {
       input.value = '';
       return `Добавлено: ${added}` + (skipped ? `, уже были: ${skipped}` : '') + (failed.length ? `, не найдено: ${failed.length} (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})` : ''); }) }, 'Добавить фильм'),
     h('button', { class: 'btn ghost', onclick: () => run(async () => {
-      const d = await api('/api/films/refresh', 'POST'); return 'Обновлено фильмов: ' + d.updated + (d.ru ? '' : '. Русские названия не подтянуты: на сервере не задан ключ TMDB_API_KEY.'); }) }, 'Обновить рейтинги и названия')));
+      const d = await api('/api/films/refresh', 'POST'); return `Обновлено фильмов: ${d.updated}. Русских названий получено: ${d.ru}.` + (!d.key ? ' Ключ TMDB_API_KEY на сервере не задан.' : '') + (d.error ? ' Причина: ' + d.error : ''); }) }, 'Обновить рейтинги и названия')));
 }
 
 function render() {

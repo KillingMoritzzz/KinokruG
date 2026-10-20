@@ -128,13 +128,16 @@ async function fetchOmdb(id) {
   return { id: d.imdbID, title: d.Title, year: clean(d.Year), poster: poster && poster.startsWith('https://') ? poster : null, imdb: clean(d.imdbRating) };
 }
 // Русское название берём из TMDB. Ключ TMDB_API_KEY необязателен: без него сайт работает, но без русских названий.
+const TMDB_KEY = (E.TMDB_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+let ruError = '';
 async function fetchRu(id) {
-  if (!E.TMDB_API_KEY) return null;
+  if (!TMDB_KEY) return null;
   try {
-    const r = await fetch(`https://api.themoviedb.org/3/find/${id}?api_key=${encodeURIComponent(E.TMDB_API_KEY)}&external_source=imdb_id&language=ru-RU`);
+    const r = await fetch(`https://api.themoviedb.org/3/find/${id}?api_key=${encodeURIComponent(TMDB_KEY)}&external_source=imdb_id&language=ru-RU`);
     const d = await r.json();
+    if (!r.ok) { ruError = `TMDB ответил ${r.status}: ${d.status_message || ''}`; return null; }
     return d.movie_results?.[0]?.title || null;
-  } catch { return null; }
+  } catch (e) { ruError = 'Не удалось связаться с TMDB: ' + e.message; return null; }
 }
 async function loadFilm(id) {
   const f = await fetchOmdb(id);
@@ -163,13 +166,15 @@ app.post('/api/films', needAdmin, async (req, res) => {
 
 app.post('/api/films/refresh', needAdmin, async (req, res) => {
   const { rows } = await pool.query('select imdb_id from films');
-  let updated = 0;
+  let updated = 0, ru = 0, dbError = '';
+  ruError = '';
   for (let i = 0; i < rows.length; i += 5) {
     await Promise.all(rows.slice(i, i + 5).map(async ({ imdb_id }) => {
-      try { const f = await loadFilm(imdb_id); if (f) { await upsert(f); updated++; } } catch {}
+      try { const f = await loadFilm(imdb_id); if (f) { await upsert(f); updated++; if (f.ru) ru++; } }
+      catch (e) { dbError = dbError || e.message; }
     }));
   }
-  res.json({ ok: true, updated, ru: !!E.TMDB_API_KEY });
+  res.json({ ok: true, updated, ru, key: !!TMDB_KEY, error: dbError || ruError });
 });
 
 app.delete('/api/films/:id', needAdmin, async (req, res) => {
