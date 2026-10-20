@@ -103,6 +103,49 @@ body.home #topbar{display:flex}
 .modal-in .btn{margin-top:12px}
 .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--muted);font-size:26px;line-height:1;cursor:pointer}
 .credit{margin-top:28px;font-size:12px;color:var(--muted)}
+
+@property --c1{syntax:'<color>';inherits:true;initial-value:#0f1620}
+@property --c2{syntax:'<color>';inherits:true;initial-value:#243447}
+@property --c3{syntax:'<color>';inherits:true;initial-value:#7983f5}
+body.film #wall,body.film .wrap{display:none}
+.ttl{color:inherit;text-decoration:none}
+.ttl:hover{text-decoration:underline}
+#film{display:none;position:relative;min-height:100vh;--accent:var(--c3);transition:--c1 .7s,--c2 .7s,--c3 .7s}
+body.film #film{display:block}
+#filmbg{position:fixed;inset:0;z-index:0;background:radial-gradient(900px 600px at 15% -5%,var(--c2),transparent 70%),radial-gradient(800px 600px at 100% 20%,color-mix(in srgb,var(--c3) 30%,transparent),transparent 70%),var(--c1)}
+.fp-wrap{position:relative;z-index:1;max-width:980px;margin:0 auto;padding:18px 16px 56px;color:#f3f1ec}
+.fp-top{margin-bottom:24px}
+.fp-back{font:inherit;font-size:14px;color:#f3f1ec;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 14px;cursor:pointer;backdrop-filter:blur(8px)}
+.fp-hero{display:grid;grid-template-columns:240px 1fr;gap:28px;align-items:start}
+@media (max-width:720px){.fp-hero{grid-template-columns:1fr}.fp-poster{max-width:240px}}
+.fp-poster{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:10px;background:rgba(255,255,255,.08);box-shadow:0 24px 60px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.08)}
+#film h1{font:700 clamp(32px,6vw,56px)/1.05 "Iowan Old Style","Palatino Linotype",Georgia,serif;margin:0 0 6px;overflow-wrap:anywhere}
+.fp-orig{color:rgba(255,255,255,.7);margin-bottom:14px}
+.fp-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.fp-tag{font-size:13px;border:1px solid color-mix(in srgb,var(--accent) 60%,transparent);color:var(--c4,#fff);border-radius:999px;padding:3px 12px}
+.fp-scores{display:flex;gap:12px;margin-bottom:20px}
+.fp-s{min-width:120px;border-radius:12px;padding:10px 16px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px)}
+.fp-s b{display:block;font-size:30px;line-height:1.1}
+.fp-s small{color:rgba(255,255,255,.7)}
+.fp-s.fp-srv b{color:var(--accent)}
+.fp-vote{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;max-width:460px}
+.fp-vote button{font:inherit;padding:9px 0;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#f3f1ec;cursor:pointer}
+.fp-vote button:hover:not(:disabled){border-color:var(--accent)}
+.fp-vote button:disabled{opacity:.45;cursor:default}
+.fp-vote button.on{background:var(--accent);border-color:var(--accent);color:#111;font-weight:700}
+.fp-hint{font-size:13px;color:rgba(255,255,255,.65);margin:8px 0 0;min-height:1.4em}
+.fp-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.fp-btn{display:inline-block;font-weight:600;padding:10px 18px;border-radius:999px;background:var(--accent);color:#111;text-decoration:none}
+.fp-btn.ghost{background:rgba(255,255,255,.08);color:#f3f1ec;border:1px solid rgba(255,255,255,.2);font-weight:400}
+#film h2{font-size:15px;letter-spacing:.02em;margin:34px 0 10px;color:rgba(255,255,255,.85)}
+.fp-desc{max-width:62ch;margin:0;color:rgba(255,255,255,.88)}
+.fp-pal{display:flex;gap:14px;flex-wrap:wrap}
+.fp-sw{display:flex;gap:10px;align-items:center;font-size:13px;color:rgba(255,255,255,.8)}
+.fp-sw i{display:block;width:38px;height:38px;border-radius:8px;border:1px solid rgba(255,255,255,.25)}
+.fp-stills{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media (max-width:620px){.fp-stills{grid-template-columns:repeat(2,1fr)}}
+.fp-still{display:block;aspect-ratio:16/9;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
+.fp-still img{display:block;width:100%;height:100%;object-fit:cover}
 </style>
 </head>
 <body>
@@ -118,6 +161,7 @@ body.home #topbar{display:flex}
 </div></div>
 <div id="topbar"><button class="btn ghost" id="toRating">Весь рейтинг</button><span id="topName"></span><a href="/auth/logout">Выйти</a></div>
 <div id="modal"><div class="modal-in"><button class="x" id="mclose" aria-label="Закрыть">×</button><div id="modalBody"></div></div></div>
+<div id="film"><div id="filmbg"></div><div class="fp-wrap" id="filmBody"></div></div>
 <div id="hero"><div class="hero-card">
   <h1 id="heroTitle"></h1>
   <p>Оцениваем фильмы вместе: рейтинг IMDb и оценки участников нашего сервера Discord.</p>
@@ -196,7 +240,14 @@ function renderAdmin() {
       input.value = '';
       return `Добавлено: ${added}` + (skipped ? `, уже были: ${skipped}` : '') + (failed.length ? `, не найдено: ${failed.length} (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})` : ''); }) }, 'Добавить фильм'),
     h('button', { class: 'btn ghost', onclick: () => run(async () => {
-      const d = await api('/api/films/refresh', 'POST'); return `Фильмов на сайте: ${d.total}. Русских названий получено: ${d.ru}. Рейтингов IMDb обновлено: ${d.rated}.` + (!d.key ? ' Ключ TMDB_API_KEY на сервере не задан.' : '') + (d.error ? ' Причина: ' + d.error : ''); }) }, 'Обновить рейтинги и названия')));
+      let offset = 0, total = 1, ru = 0, rated = 0, pals = 0, key = true; const errs = new Set();
+      while (offset < total) {
+        say(`Обновляю… ${Math.min(offset, total)} из ${total}`);
+        const d = await api('/api/films/refresh', 'POST', { offset, limit: 20 });
+        total = d.total; offset += 20; ru += d.ru; rated += d.rated; pals += d.pals; key = d.key;
+        if (d.error) errs.add(d.error);
+      }
+      return `Фильмов на сайте: ${total}. Русских названий: ${ru}. Палитр вычислено: ${pals}. Рейтингов IMDb обновлено: ${rated}.` + (!key ? ' Ключ TMDB_API_KEY на сервере не задан.' : '') + (errs.size ? ' Причина: ' + [...errs].join('; ') : ''); }) }, 'Обновить рейтинги и названия')));
 }
 
 function render() {
@@ -216,7 +267,7 @@ function cardEl(f) {
     return h('div', { class: 'card' },
       f.poster ? h('img', { class: 'poster', src: f.poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('div', { class: 'poster' }),
       h('div', {},
-        h('h2', {}, tt(f)), h('div', { class: 'year' }, [f.year, f.ru && f.ru !== f.title ? f.title : ''].filter(Boolean).join(' · ')),
+        h('h2', {}, h('a', { class: 'ttl', href: '/film/' + encodeURIComponent(f.id), onclick: e => { e.preventDefault(); showFilm(f.id); } }, tt(f))), h('div', { class: 'year' }, [f.year, f.ru && f.ru !== f.title ? f.title : ''].filter(Boolean).join(' · ')),
         h('div', { class: 'scores' },
           h('div', { class: 's imdb' }, h('b', {}, fmt(f.imdb)), h('small', {}, 'IMDb')),
           h('div', { class: 's srv' }, h('b', {}, fmt(f.srv)), h('small', {}, `Сервер, оценок: ${f.n}`))),
@@ -239,7 +290,7 @@ const Wall = (() => {
   const mod = (a, n) => ((a % n) + n) % n;
   const capNodes = f => [h('b', {}, tt(f)), h('br'), `IMDb ${fmt(f.imdb)} · Сервер ${fmt(f.srv)}`];
   function poster(f, w, ph) {
-    return h('a', { class: 'p', href: 'https://www.imdb.com/title/' + encodeURIComponent(f.id) + '/', target: '_blank', rel: 'noopener', draggable: 'false', 'data-id': f.id, style: `width:${w}px;height:${ph}px` },
+    return h('a', { class: 'p', href: '/film/' + encodeURIComponent(f.id), onclick: e => { if (e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); showFilm(f.id); }, draggable: 'false', 'data-id': f.id, style: `width:${w}px;height:${ph}px` },
       f.poster ? h('img', { src: f.poster, alt: tt(f), loading: 'lazy', draggable: 'false', referrerpolicy: 'no-referrer' }) : h('span', { class: 'nop' }, tt(f)),
       h('span', { class: 'cap' }, ...capNodes(f)));
   }
@@ -304,8 +355,10 @@ const Wall = (() => {
 // --- главная после входа: приветствие и поиск ---
 let openId = null, found = [], active = 0;
 const norm = t => String(t || '').toLowerCase().replace(/ё/g, 'е');
+let view = 'landing', lastView = 'home';
 function setView(v) {
-  document.body.classList.remove('landing', 'home', 'list');
+  view = v;
+  document.body.classList.remove('landing', 'home', 'list', 'film');
   document.body.classList.add(v);
   scrollTo(0, 0);
   if (v === 'home') {
@@ -330,7 +383,7 @@ function runSearch() {
     h('div', { class: 'rt' }, h('b', {}, tt(f)), h('small', {}, [f.ru && f.ru !== f.title ? f.title : '', f.year, 'IMDb ' + fmt(f.imdb), 'сервер ' + fmt(f.srv)].filter(Boolean).join(' · ')))))
     : [h('div', { class: 'none' }, films.length ? 'Такого фильма на сайте пока нет' : 'На сайте пока нет фильмов')]));
 }
-function openFilm(id) { openId = id; renderModal(); }
+function openFilm(id) { showFilm(id); }
 function closeModal() { openId = null; renderModal(); }
 function renderModal() {
   const f = films.find(x => x.id === openId);
@@ -352,6 +405,62 @@ addEventListener('keydown', e => {
 $('#toRating').addEventListener('click', () => setView('list'));
 $('#toHome').addEventListener('click', () => setView(me ? 'home' : 'landing'));
 
+// --- страница фильма: фон и акценты берутся из палитры постера ---
+const DEFPAL = ['#0f1620', '#243447', '#7983f5', '#dfe3ff'];
+let filmId = null;
+function backTo() {
+  const v = me ? (lastView === 'landing' ? 'home' : lastView) : (lastView === 'list' ? 'list' : 'landing');
+  document.title = SITE;
+  setView(v);
+}
+function leaveFilm() { history.pushState(null, '', '/'); backTo(); }
+async function showFilm(id, push = true) {
+  filmId = id;
+  if (push) history.pushState({ film: id }, '', '/film/' + encodeURIComponent(id));
+  if (view !== 'film') lastView = view;
+  setView('film');
+  try { renderFilm(await api('/api/films/' + encodeURIComponent(id))); }
+  catch (e) { $('#filmBody').replaceChildren(h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')), h('p', {}, e.message)); }
+}
+function renderFilm(d) {
+  const [c1, c2, c3, c4] = d.palette || DEFPAL, st = $('#film').style;
+  st.setProperty('--c1', c1); st.setProperty('--c2', c2); st.setProperty('--c3', c3); st.setProperty('--c4', c4);
+  document.title = tt(d) + ' — ' + SITE;
+  const hint = h('p', { class: 'fp-hint' }, me ? (d.mine ? `Ваша оценка: ${d.mine}. Нажмите ещё раз, чтобы убрать.` : 'Выберите оценку от 1 до 10') : '');
+  const vote = h('div', { class: 'fp-vote' }, ...Array.from({ length: 10 }, (_, k) => h('button', {
+    class: d.mine === k + 1 ? 'on' : '', disabled: !me,
+    onclick: async () => {
+      try { await api('/api/rate', 'POST', { filmId: d.id, score: d.mine === k + 1 ? null : k + 1 }); await showFilm(d.id, false); load(); }
+      catch (e) { hint.textContent = e.message; }
+    }
+  }, String(k + 1))));
+  const btns = [];
+  if (d.trailer) btns.push(h('a', { class: 'fp-btn', href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(d.trailer), target: '_blank', rel: 'noopener' }, '▶ Трейлер'));
+  btns.push(h('a', { class: 'fp-btn ghost', href: 'https://www.imdb.com/title/' + encodeURIComponent(d.id) + '/', target: '_blank', rel: 'noopener' }, 'Страница на IMDb'));
+  if (!me) btns.push(h('a', { class: 'fp-btn', href: '/auth/login' }, 'Войти, чтобы оценить'));
+  const tags = [...(d.genres || []), d.runtime ? d.runtime + ' мин' : ''].filter(Boolean).map(t => h('span', { class: 'fp-tag' }, t));
+  $('#filmBody').replaceChildren(
+    h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')),
+    h('div', { class: 'fp-hero' },
+      d.poster ? h('img', { class: 'fp-poster', src: d.poster, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'fp-poster' }),
+      h('div', {},
+        h('h1', {}, tt(d)),
+        h('div', { class: 'fp-orig' }, [d.ru && d.ru !== d.title ? d.title : '', d.year].filter(Boolean).join(' · ')),
+        h('div', { class: 'fp-meta' }, ...tags),
+        h('div', { class: 'fp-scores' },
+          h('div', { class: 'fp-s' }, h('b', {}, fmt(d.imdb)), h('small', {}, 'IMDb')),
+          h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
+        vote, hint, h('div', { class: 'fp-btns' }, ...btns))),
+    ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
+    ...(d.palette ? [h('h2', {}, 'Палитра постера'), h('div', { class: 'fp-pal' }, ...d.palette.map(c => h('div', { class: 'fp-sw' }, h('i', { style: 'background:' + c }), c)))] : []),
+    ...(d.backdrops && d.backdrops.length ? [h('h2', {}, 'Кадры'), h('div', { class: 'fp-stills' }, ...d.backdrops.map(p =>
+      h('a', { class: 'fp-still', href: 'https://image.tmdb.org/t/p/w1280' + p, target: '_blank', rel: 'noopener' }, h('img', { src: 'https://image.tmdb.org/t/p/w780' + p, alt: '', loading: 'lazy' }))))] : []));
+}
+addEventListener('popstate', () => {
+  const m = location.pathname.match(/^\/film\/(tt\d+)/);
+  if (m) showFilm(m[1], false); else if (view === 'film') backTo();
+});
+
 (async () => {
   $('#site').textContent = '🎬 ' + SITE;
   $('#heroTitle').textContent = '🎬 ' + SITE;
@@ -364,6 +473,8 @@ $('#toHome').addEventListener('click', () => setView(me ? 'home' : 'landing'));
   try { me = await api('/api/me'); } catch {}
   renderWho(); renderAdmin();
   setView(me ? 'home' : 'landing');
+  const fm = location.pathname.match(/^\/film\/(tt\d+)/);
+  if (fm) showFilm(fm[1], false);
   try { await load(); } catch (e) { say(e.message); }
 })();
 </script>
