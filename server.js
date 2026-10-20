@@ -23,7 +23,8 @@ await pool.query(`
   create table if not exists ratings(
     film_id text references films(imdb_id) on delete cascade,
     user_id text, score int check (score between 1 and 10),
-    primary key (film_id, user_id));`);
+    primary key (film_id, user_id));
+  alter table films add column if not exists title_ru text;`);
 
 // --- подписанные cookie (без внешних библиотек) ---
 const hmac = b => crypto.createHmac('sha256', E.SESSION_SECRET).update(b).digest('base64url');
@@ -93,7 +94,7 @@ app.get('/api/me', (req, res) =>
 // --- фильмы и оценки ---
 app.get('/api/films', async (req, res) => {
   const { rows } = await pool.query(`
-    select f.imdb_id id, f.title, f.year, f.poster, f.imdb_rating::float imdb,
+    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $1 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
@@ -126,10 +127,24 @@ async function fetchOmdb(id) {
   const poster = clean(d.Poster);
   return { id: d.imdbID, title: d.Title, year: clean(d.Year), poster: poster && poster.startsWith('https://') ? poster : null, imdb: clean(d.imdbRating) };
 }
+// Русское название берём из TMDB. Ключ TMDB_API_KEY необязателен: без него сайт работает, но без русских названий.
+async function fetchRu(id) {
+  if (!E.TMDB_API_KEY) return null;
+  try {
+    const r = await fetch(`https://api.themoviedb.org/3/find/${id}?api_key=${encodeURIComponent(E.TMDB_API_KEY)}&external_source=imdb_id&language=ru-RU`);
+    const d = await r.json();
+    return d.movie_results?.[0]?.title || null;
+  } catch { return null; }
+}
+async function loadFilm(id) {
+  const f = await fetchOmdb(id);
+  if (f) f.ru = await fetchRu(id);
+  return f;
+}
 const upsert = f => pool.query(`
-  insert into films(imdb_id, title, year, poster, imdb_rating) values ($1, $2, $3, $4, $5)
-  on conflict (imdb_id) do update set title = $2, year = $3, poster = $4, imdb_rating = $5`,
-  [f.id, f.title, f.year, f.poster, f.imdb]);
+  insert into films(imdb_id, title, title_ru, year, poster, imdb_rating) values ($1, $2, $6::text, $3, $4, $5)
+  on conflict (imdb_id) do update set title = $2, title_ru = coalesce($6::text, films.title_ru), year = $3, poster = $4, imdb_rating = $5`,
+  [f.id, f.title, f.year, f.poster, f.imdb, f.ru || null]);
 
 // Можно передать сразу много IMDb ID или ссылок (до 30 за запрос)
 app.post('/api/films', needAdmin, async (req, res) => {
@@ -140,7 +155,7 @@ app.post('/api/films', needAdmin, async (req, res) => {
   let added = 0; const failed = [];
   for (let i = 0; i < todo.length; i += 5) {
     await Promise.all(todo.slice(i, i + 5).map(async id => {
-      try { const f = await fetchOmdb(id); if (f) { await upsert(f); added++; } else failed.push(id); } catch { failed.push(id); }
+      try { const f = await loadFilm(id); if (f) { await upsert(f); added++; } else failed.push(id); } catch { failed.push(id); }
     }));
   }
   res.json({ ok: true, added, skipped: ids.length - todo.length, failed });
@@ -151,10 +166,10 @@ app.post('/api/films/refresh', needAdmin, async (req, res) => {
   let updated = 0;
   for (let i = 0; i < rows.length; i += 5) {
     await Promise.all(rows.slice(i, i + 5).map(async ({ imdb_id }) => {
-      try { const f = await fetchOmdb(imdb_id); if (f) { await upsert(f); updated++; } } catch {}
+      try { const f = await loadFilm(imdb_id); if (f) { await upsert(f); updated++; } } catch {}
     }));
   }
-  res.json({ ok: true, updated });
+  res.json({ ok: true, updated, ru: !!E.TMDB_API_KEY });
 });
 
 app.delete('/api/films/:id', needAdmin, async (req, res) => {

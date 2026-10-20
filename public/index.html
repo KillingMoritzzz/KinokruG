@@ -102,6 +102,7 @@ body.home #topbar{display:flex}
 .modal-in .card h2{padding-right:22px}
 .modal-in .btn{margin-top:12px}
 .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--muted);font-size:26px;line-height:1;cursor:pointer}
+.credit{margin-top:28px;font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -144,6 +145,7 @@ body.home #topbar{display:flex}
     </label>
   </div>
   <div id="grid" class="grid"></div>
+  <div class="credit">Русские названия: TMDB. Этот сайт использует API TMDB, но не одобрен и не сертифицирован TMDB.</div>
 </div>
 <script>
 const SITE = 'Кинокружок';
@@ -165,6 +167,7 @@ const api = async (url, method = 'GET', body) => {
   return d;
 };
 const fmt = n => n == null ? '—' : n.toFixed(1).replace('.', ',');
+const tt = f => f.ru || f.title;
 let me = null, films = [];
 
 function say(text) { for (const sel of ['#msg', '#heroMsg']) $(sel).replaceChildren(text ? h('div', { class: 'msg' }, text) : ''); }
@@ -193,7 +196,7 @@ function renderAdmin() {
       input.value = '';
       return `Добавлено: ${added}` + (skipped ? `, уже были: ${skipped}` : '') + (failed.length ? `, не найдено: ${failed.length} (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})` : ''); }) }, 'Добавить фильм'),
     h('button', { class: 'btn ghost', onclick: () => run(async () => {
-      const d = await api('/api/films/refresh', 'POST'); return 'Рейтинги IMDb обновлены: ' + d.updated; }) }, 'Обновить рейтинги IMDb')));
+      const d = await api('/api/films/refresh', 'POST'); return 'Обновлено фильмов: ' + d.updated + (d.ru ? '' : '. Русские названия не подтянуты: на сервере не задан ключ TMDB_API_KEY.'); }) }, 'Обновить рейтинги и названия')));
 }
 
 function render() {
@@ -213,13 +216,13 @@ function cardEl(f) {
     return h('div', { class: 'card' },
       f.poster ? h('img', { class: 'poster', src: f.poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('div', { class: 'poster' }),
       h('div', {},
-        h('h2', {}, f.title), h('div', { class: 'year' }, f.year || ''),
+        h('h2', {}, tt(f)), h('div', { class: 'year' }, [f.year, f.ru && f.ru !== f.title ? f.title : ''].filter(Boolean).join(' · ')),
         h('div', { class: 'scores' },
           h('div', { class: 's imdb' }, h('b', {}, fmt(f.imdb)), h('small', {}, 'IMDb')),
           h('div', { class: 's srv' }, h('b', {}, fmt(f.srv)), h('small', {}, `Сервер, оценок: ${f.n}`))),
         h('div', { class: 'vote' }, ...btns),
         h('div', { class: 'hint' }, me ? (f.mine ? `Ваша оценка: ${f.mine}. Нажмите на неё ещё раз, чтобы убрать.` : 'Выберите оценку от 1 до 10') : 'Войдите через Discord, чтобы оценить'),
-        me?.admin ? h('button', { class: 'del', onclick: async () => { if (confirm('Удалить «' + f.title + '» вместе с оценками?')) { await api('/api/films/' + f.id, 'DELETE'); await load(); } } }, 'Удалить фильм') : null));
+        me?.admin ? h('button', { class: 'del', onclick: async () => { if (confirm('Удалить «' + tt(f) + '» вместе с оценками?')) { await api('/api/films/' + f.id, 'DELETE'); await load(); } } }, 'Удалить фильм') : null));
 }
 
 const plural = (n, a, b, c) => { const m = n % 100, d = n % 10; return m > 10 && m < 20 ? c : d === 1 ? a : d > 1 && d < 5 ? b : c; };
@@ -234,10 +237,10 @@ const Wall = (() => {
   let list = [], key = '', ox = 0, oy = 0, vx = 0, vy = 0, drag = null, moved = 0, suppress = false;
   let inner = null, cols = [], colStep = 1, P = 1, timer = 0;
   const mod = (a, n) => ((a % n) + n) % n;
-  const capNodes = f => [h('b', {}, f.title), h('br'), `IMDb ${fmt(f.imdb)} · Сервер ${fmt(f.srv)}`];
+  const capNodes = f => [h('b', {}, tt(f)), h('br'), `IMDb ${fmt(f.imdb)} · Сервер ${fmt(f.srv)}`];
   function poster(f, w, ph) {
     return h('a', { class: 'p', href: 'https://www.imdb.com/title/' + encodeURIComponent(f.id) + '/', target: '_blank', rel: 'noopener', draggable: 'false', 'data-id': f.id, style: `width:${w}px;height:${ph}px` },
-      f.poster ? h('img', { src: f.poster, alt: f.title, loading: 'lazy', draggable: 'false', referrerpolicy: 'no-referrer' }) : h('span', { class: 'nop' }, f.title),
+      f.poster ? h('img', { src: f.poster, alt: tt(f), loading: 'lazy', draggable: 'false', referrerpolicy: 'no-referrer' }) : h('span', { class: 'nop' }, tt(f)),
       h('span', { class: 'cap' }, ...capNodes(f)));
   }
   // Стена бесконечная: колонки повторяются по горизонтали, каждая колонка зациклена по вертикали
@@ -318,13 +321,13 @@ function setView(v) {
 function runSearch() {
   const q = norm($('#q').value).trim(), box = $('#results');
   if (!q) { box.classList.remove('on'); box.replaceChildren(); found = []; return; }
-  found = films.filter(f => norm(f.title + ' ' + (f.year || '') + ' ' + f.id).includes(q))
-    .sort((a, b) => (norm(b.title).startsWith(q) - norm(a.title).startsWith(q)) || (b.imdb ?? 0) - (a.imdb ?? 0)).slice(0, 8);
+  found = films.filter(f => norm(f.title + ' ' + (f.ru || '') + ' ' + (f.year || '') + ' ' + f.id).includes(q))
+    .sort((a, b) => (+(norm(b.ru || b.title).startsWith(q) || norm(b.title).startsWith(q)) - +(norm(a.ru || a.title).startsWith(q) || norm(a.title).startsWith(q))) || (b.imdb ?? 0) - (a.imdb ?? 0)).slice(0, 8);
   active = Math.min(active, Math.max(found.length - 1, 0));
   box.classList.add('on');
   box.replaceChildren(...(found.length ? found.map((f, i) => h('div', { class: 'res' + (i === active ? ' act' : ''), onclick: () => openFilm(f.id) },
     f.poster ? h('img', { src: f.poster, alt: '', referrerpolicy: 'no-referrer' }) : h('span', { class: 'th' }),
-    h('div', { class: 'rt' }, h('b', {}, f.title), h('small', {}, `${f.year || ''} · IMDb ${fmt(f.imdb)} · сервер ${fmt(f.srv)}`))))
+    h('div', { class: 'rt' }, h('b', {}, tt(f)), h('small', {}, [f.ru && f.ru !== f.title ? f.title : '', f.year, 'IMDb ' + fmt(f.imdb), 'сервер ' + fmt(f.srv)].filter(Boolean).join(' · ')))))
     : [h('div', { class: 'none' }, films.length ? 'Такого фильма на сайте пока нет' : 'На сайте пока нет фильмов')]));
 }
 function openFilm(id) { openId = id; renderModal(); }
