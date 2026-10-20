@@ -198,13 +198,6 @@ button.fp-btn{border:0;font:inherit;font-weight:600;cursor:pointer}
 .lb-next{right:14px;top:50%;transform:translateY(-50%)}
 .lb-count{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:13px}
 @media (max-width:700px){.lb-prev{left:6px}.lb-next{right:6px}}
-.fp-composer{color:rgba(255,255,255,.75);margin:0 0 10px}
-.fp-tracks{margin:0 0 14px;padding-left:28px}
-.fp-tracks li{padding:7px 0;border-bottom:1px solid rgba(255,255,255,.08)}
-.fp-tracks li::marker{color:var(--accent)}
-.fp-tracks li.unk .tr{color:rgba(255,255,255,.6);font-style:italic}
-.fp-tracks .row{display:flex;gap:10px;align-items:baseline}
-.fp-tracks .tr{flex:1;min-width:0;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -573,26 +566,6 @@ async function loadSimilar(id, color) {
   } catch (e) { row.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
 }
 
-// --- музыка из фильма: простой список ---
-function musicBlock(d) {
-  const ta = h('textarea', { rows: 3, maxlength: 6000, placeholder: 'По одному треку в строке: Исполнитель — Название' });
-  const err = h('div', { class: 'fp-err' });
-  const add = async body => { try { await api('/api/films/' + encodeURIComponent(d.id) + '/tracks', 'POST', body); await showFilm(d.id, false); } catch (e) { err.textContent = e.message; } };
-  const tracks = d.tracks || [];
-  const list = tracks.length
-    ? h('ol', { class: 'fp-tracks' }, ...tracks.map(t => h('li', { class: t.unknown ? 'unk' : '' }, h('div', { class: 'row' },
-        h('span', { class: 'tr' }, t.unknown ? `${t.artist || 'Композитор'} — ID` : (t.artist ? `${t.artist} — ${t.title}` : t.title)),
-        t.canDelete ? h('button', { class: 'fp-del', title: 'Удалить', onclick: async () => { await api('/api/tracks/' + t.id, 'DELETE'); await showFilm(d.id, false); } }, '×') : null))))
-    : h('p', { class: 'fp-empty' }, 'Список пока пуст.' + (me ? ' Добавьте первые треки!' : ''));
-  return h('div', {},
-    d.composer ? h('p', { class: 'fp-composer' }, 'Композитор: ' + d.composer) : null,
-    list,
-    me ? h('div', { class: 'fp-form' }, ta, h('div', { class: 'fp-formrow' }, err,
-        h('button', { class: 'fp-btn ghost', onclick: () => add({ unknown: true }) }, '+ Трек без названия (ID)'),
-        h('button', { class: 'fp-btn', onclick: () => { if (ta.value.trim()) add({ text: ta.value }); } }, 'Добавить')))
-       : h('p', { class: 'fp-empty' }, 'Войдите через Discord, чтобы добавлять треки.'));
-}
-
 function renderFilm(d) {
   const [c1, c2, c3, c4] = d.palette || DEFPAL, st = $('#film').style;
   st.setProperty('--c1', c1); st.setProperty('--c2', c2); st.setProperty('--c3', c3); st.setProperty('--c4', c4);
@@ -626,7 +599,6 @@ function renderFilm(d) {
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
     ...(shots.length ? [h('h2', {}, 'Кадры'), h('div', { class: 'fp-stills' }, ...shots.map((s, i) =>
       h('button', { class: 'fp-still', 'aria-label': 'Открыть кадр', onclick: () => openLb(shots, i) }, h('img', { src: s.thumb, alt: '', loading: 'lazy' }))))] : []),
-    h('h2', {}, 'Музыка из фильма'), musicBlock(d),
     ...(d.palette ? [h('h2', {}, 'Палитра постера (нажмите на цвет, чтобы найти фильмы такого оттенка)'),
       h('div', { class: 'fp-pal' }, ...d.palette.map(c => h('button', { class: 'fp-sw', title: 'Найти фильмы этого оттенка', onclick: () => loadSimilar(d.id, c) }, h('i', { style: 'background:' + c }), c))),
       h('h2', { id: 'simTitle' }, ''), h('div', { class: 'fp-sim', id: 'simRow' })] : []),
