@@ -119,11 +119,12 @@ app.post('/api/rate', needUser, async (req, res) => {
 });
 
 // --- администратор: IMDb через OMDb API ---
+let omdbError = '';
 const clean = x => x && x !== 'N/A' ? x : null;
 async function fetchOmdb(id) {
   const r = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(E.OMDB_API_KEY)}&i=${id}`);
   const d = await r.json();
-  if (d.Response === 'False') return null;
+  if (d.Response === 'False') { omdbError = d.Error || 'OMDb не ответил'; return null; }
   const poster = clean(d.Poster);
   return { id: d.imdbID, title: d.Title, year: clean(d.Year), poster: poster && poster.startsWith('https://') ? poster : null, imdb: clean(d.imdbRating) };
 }
@@ -164,17 +165,23 @@ app.post('/api/films', needAdmin, async (req, res) => {
   res.json({ ok: true, added, skipped: ids.length - todo.length, failed });
 });
 
+// Русские названия (TMDB) и рейтинги IMDb (OMDb) обновляются независимо: если у OMDb закончился суточный лимит, названия всё равно подтянутся
 app.post('/api/films/refresh', needAdmin, async (req, res) => {
   const { rows } = await pool.query('select imdb_id from films');
-  let updated = 0, ru = 0, dbError = '';
-  ruError = '';
+  let ru = 0, rated = 0, dbError = '';
+  ruError = ''; omdbError = '';
   for (let i = 0; i < rows.length; i += 5) {
     await Promise.all(rows.slice(i, i + 5).map(async ({ imdb_id }) => {
-      try { const f = await loadFilm(imdb_id); if (f) { await upsert(f); updated++; if (f.ru) ru++; } }
-      catch (e) { dbError = dbError || e.message; }
+      try {
+        const t = await fetchRu(imdb_id);
+        if (t) { await pool.query('update films set title_ru = $2::text where imdb_id = $1', [imdb_id, t]); ru++; }
+        const f = await fetchOmdb(imdb_id);
+        if (f) { await upsert(f); rated++; }
+      } catch (e) { dbError = dbError || e.message; }
     }));
   }
-  res.json({ ok: true, updated, ru, key: !!TMDB_KEY, error: dbError || ruError });
+  res.json({ ok: true, total: rows.length, ru, rated, key: !!TMDB_KEY,
+    error: [dbError, ruError, omdbError && 'OMDb: ' + omdbError].filter(Boolean).join('. ') });
 });
 
 app.delete('/api/films/:id', needAdmin, async (req, res) => {
