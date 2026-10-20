@@ -146,6 +146,58 @@ body.film #film{display:block}
 @media (max-width:620px){.fp-stills{grid-template-columns:repeat(2,1fr)}}
 .fp-still{display:block;aspect-ratio:16/9;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
 .fp-still img{display:block;width:100%;height:100%;object-fit:cover}
+
+button.fp-btn{border:0;font:inherit;font-weight:600;cursor:pointer}
+.fp-sw{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:4px 6px;border-radius:10px;transition:background .2s}
+.fp-sw:hover{background:rgba(255,255,255,.1)}
+.fp-still{padding:0;font:inherit;color:inherit;cursor:zoom-in}
+.fp-still img{transition:transform .35s}
+.fp-still:hover img{transform:scale(1.05)}
+.fp-tabs{margin-top:40px}
+.fp-tabbar{display:flex;gap:6px;border-bottom:1px solid rgba(255,255,255,.14);margin-bottom:18px;overflow-x:auto}
+.fp-tab{font:inherit;white-space:nowrap;color:rgba(255,255,255,.7);background:none;border:0;border-bottom:2px solid transparent;padding:10px 14px;cursor:pointer;margin-bottom:-1px}
+.fp-tab.on{color:#fff;border-bottom-color:var(--accent)}
+.fp-empty{color:rgba(255,255,255,.65);margin:8px 0}
+.fp-raters{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.fp-rater{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.1)}
+.fp-rater.me{border-color:var(--accent)}
+.fp-rn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp-rater b{color:var(--accent);font-size:20px}
+.av{width:32px;height:32px;border-radius:50%;object-fit:cover;flex:none;background:rgba(255,255,255,.15)}
+.av0{display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+.fp-form textarea{width:100%;font:inherit;color:#f3f1ec;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px;resize:vertical}
+.fp-formrow{display:flex;gap:12px;align-items:center;justify-content:flex-end;margin:8px 0 18px}
+.fp-err{flex:1;color:#ff9b9b;font-size:13px}
+.fp-formrow .fp-btn:disabled{opacity:.5}
+.fp-c{display:flex;gap:12px;padding:12px 0;border-top:1px solid rgba(255,255,255,.1)}
+.fp-cb{flex:1;min-width:0}
+.fp-ch{display:flex;gap:10px;align-items:baseline}
+.fp-ch span{color:rgba(255,255,255,.55);font-size:12px}
+.fp-del{margin-left:auto;background:none;border:0;color:rgba(255,255,255,.5);font-size:20px;line-height:1;cursor:pointer}
+.fp-ct{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px}
+.fp-sim{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px}
+.fp-sf{flex:none;width:120px;text-decoration:none;color:inherit}
+.fp-sf img,.fp-sfn{display:flex;width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:8px;background:rgba(255,255,255,.08);align-items:center;justify-content:center;text-align:center;padding:0;font-size:13px;transition:transform .25s}
+.fp-sfn{padding:6px}
+.fp-sf:hover img,.fp-sf:hover .fp-sfn{transform:translateY(-3px)}
+.fp-bar{display:flex;height:5px;margin-top:6px;border-radius:3px;overflow:hidden}
+.fp-bar i{flex:1}
+.fp-sf small{display:block;margin-top:6px;font-size:12px;color:rgba(255,255,255,.75);line-height:1.3}
+.fp-reset{margin-left:10px;font:inherit;font-size:12px;background:none;border:1px solid rgba(255,255,255,.25);color:inherit;border-radius:999px;padding:2px 10px;cursor:pointer}
+#lb{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(5,6,10,.9);backdrop-filter:blur(10px);opacity:0;visibility:hidden;transition:opacity .28s,visibility .28s}
+#lb.on{opacity:1;visibility:visible}
+#lbStage{width:min(1100px,92vw);max-height:86vh;display:flex;flex-direction:column;align-items:center;gap:12px}
+.lb-img{max-width:100%;max-height:82vh;border-radius:10px;opacity:0;transform:scale(.96);transition:opacity .3s,transform .35s}
+.lb-img.ready{opacity:1;transform:none}
+.lb-video{width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.lb-video iframe{width:100%;height:100%;border:0}
+.lb-yt{color:rgba(255,255,255,.7);font-size:13px}
+.lb-x,.lb-nav{position:absolute;display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:28px;line-height:1;cursor:pointer}
+.lb-x{top:14px;right:14px}
+.lb-prev{left:14px;top:50%;transform:translateY(-50%)}
+.lb-next{right:14px;top:50%;transform:translateY(-50%)}
+.lb-count{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:13px}
+@media (max-width:700px){.lb-prev{left:6px}.lb-next{right:6px}}
 </style>
 </head>
 <body>
@@ -162,6 +214,7 @@ body.film #film{display:block}
 <div id="topbar"><button class="btn ghost" id="toRating">Весь рейтинг</button><span id="topName"></span><a href="/auth/logout">Выйти</a></div>
 <div id="modal"><div class="modal-in"><button class="x" id="mclose" aria-label="Закрыть">×</button><div id="modalBody"></div></div></div>
 <div id="film"><div id="filmbg"></div><div class="fp-wrap" id="filmBody"></div></div>
+<div id="lb"><button class="lb-x" id="lbX" aria-label="Закрыть">×</button><button class="lb-nav lb-prev" id="lbPrev" aria-label="Назад">‹</button><div id="lbStage"></div><button class="lb-nav lb-next" id="lbNext" aria-label="Вперёд">›</button><div class="lb-count" id="lbCount"></div></div>
 <div id="hero"><div class="hero-card">
   <h1 id="heroTitle"></h1>
   <p>Оцениваем фильмы вместе: рейтинг IMDb и оценки участников нашего сервера Discord.</p>
@@ -417,11 +470,102 @@ function leaveFilm() { history.pushState(null, '', '/'); backTo(); }
 async function showFilm(id, push = true) {
   filmId = id;
   if (push) history.pushState({ film: id }, '', '/film/' + encodeURIComponent(id));
-  if (view !== 'film') lastView = view;
-  setView('film');
+  if (view !== 'film') { lastView = view; setView('film'); } else if (push) scrollTo(0, 0);
   try { renderFilm(await api('/api/films/' + encodeURIComponent(id))); }
   catch (e) { $('#filmBody').replaceChildren(h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')), h('p', {}, e.message)); }
 }
+// --- окно просмотра: кадры и трейлер открываются поверх страницы ---
+const lb = { items: [], i: 0 };
+function openLb(items, i = 0) { lb.items = items; lb.i = i; $('#lb').classList.add('on'); document.body.style.overflow = 'hidden'; drawLb(); }
+function closeLb() { $('#lb').classList.remove('on'); document.body.style.overflow = ''; setTimeout(() => { if (!$('#lb').classList.contains('on')) $('#lbStage').replaceChildren(); }, 300); }
+function drawLb() {
+  const it = lb.items[lb.i], multi = lb.items.length > 1;
+  $('#lbPrev').style.display = $('#lbNext').style.display = multi ? '' : 'none';
+  $('#lbCount').textContent = multi ? `${lb.i + 1} / ${lb.items.length}` : '';
+  if (it.video) {
+    $('#lbStage').replaceChildren(
+      h('div', { class: 'lb-video' }, h('iframe', { src: 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(it.video) + '?autoplay=1&rel=0', allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: 'true', title: 'Трейлер' })),
+      h('a', { class: 'lb-yt', href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.video), target: '_blank', rel: 'noopener' }, 'Не воспроизводится? Открыть на YouTube'));
+  } else {
+    const img = h('img', { class: 'lb-img', src: it.src, alt: '' });
+    img.addEventListener('load', () => img.classList.add('ready'));
+    $('#lbStage').replaceChildren(img);
+    const nx = lb.items[(lb.i + 1) % lb.items.length]; if (nx && nx.src) new Image().src = nx.src;
+  }
+}
+const lbStep = d => { if (lb.items.length > 1) { lb.i = (lb.i + d + lb.items.length) % lb.items.length; drawLb(); } };
+$('#lbX').addEventListener('click', closeLb);
+$('#lbPrev').addEventListener('click', () => lbStep(-1));
+$('#lbNext').addEventListener('click', () => lbStep(1));
+$('#lb').addEventListener('click', e => { if (e.target.id === 'lb' || e.target.id === 'lbStage') closeLb(); });
+let lbX = null;
+$('#lbStage').addEventListener('pointerdown', e => { lbX = e.clientX; });
+$('#lbStage').addEventListener('pointerup', e => { if (lbX != null && Math.abs(e.clientX - lbX) > 60) lbStep(e.clientX < lbX ? 1 : -1); lbX = null; });
+addEventListener('keydown', e => {
+  if (!$('#lb').classList.contains('on')) return;
+  if (e.key === 'Escape') closeLb(); else if (e.key === 'ArrowLeft') lbStep(-1); else if (e.key === 'ArrowRight') lbStep(1);
+});
+
+// --- участники: аватар из Discord или буква ---
+const avatar = u => u.avatar
+  ? h('img', { class: 'av', src: `https://cdn.discordapp.com/avatars/${encodeURIComponent(u.id)}/${encodeURIComponent(u.avatar)}.png?size=64`, alt: '', loading: 'lazy' })
+  : h('span', { class: 'av av0' }, (u.name || '?').slice(0, 1).toUpperCase());
+
+// --- нижние вкладки: оценки участников и комментарии ---
+let fpTab = 'ratings';
+function renderTabs(d) {
+  const btn = (k, label) => h('button', { class: 'fp-tab' + (fpTab === k ? ' on' : ''), onclick: () => { fpTab = k; renderTabs(d); } }, label);
+  const panel = h('div', { class: 'fp-panel' });
+  $('#fpTabs').replaceChildren(
+    h('div', { class: 'fp-tabbar' }, btn('ratings', `Оценки участников${d.raters ? ' (' + d.raters.length + ')' : ''}`), btn('comments', `Комментарии (${d.commentsCount})`)), panel);
+  if (fpTab === 'ratings') ratingsPanel(d, panel); else commentsPanel(d, panel);
+}
+function ratingsPanel(d, panel) {
+  if (!d.raters) { panel.append(h('p', { class: 'fp-empty' }, 'Войдите через Discord, чтобы увидеть, кто как оценил фильм.')); return; }
+  if (!d.raters.length) { panel.append(h('p', { class: 'fp-empty' }, 'Пока никто не оценил этот фильм. Будьте первым!')); return; }
+  panel.append(h('div', { class: 'fp-raters' }, ...d.raters.map(r => h('div', { class: 'fp-rater' + (me && r.id === me.id ? ' me' : '') },
+    avatar({ id: r.id, name: r.name || 'Участник', avatar: r.avatar }), h('span', { class: 'fp-rn' }, r.name || 'Участник'), h('b', {}, String(r.score))))));
+}
+async function commentsPanel(d, panel) {
+  if (!me) { panel.append(h('p', { class: 'fp-empty' }, 'Войдите через Discord, чтобы читать и писать комментарии.')); return; }
+  const ta = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'Что вы думаете об этом фильме?' });
+  const err = h('div', { class: 'fp-err' });
+  const send = h('button', { class: 'fp-btn', onclick: async () => {
+    if (!ta.value.trim()) return;
+    send.disabled = true;
+    try { await api('/api/films/' + encodeURIComponent(d.id) + '/comments', 'POST', { text: ta.value }); d.commentsCount++; renderTabs(d); }
+    catch (e) { err.textContent = e.message; send.disabled = false; }
+  } }, 'Отправить');
+  const list = h('div', { class: 'fp-comments' }, h('p', { class: 'fp-empty' }, 'Загружаю…'));
+  panel.append(h('div', { class: 'fp-form' }, ta, h('div', { class: 'fp-formrow' }, err, send)), list);
+  try {
+    const cs = await api('/api/films/' + encodeURIComponent(d.id) + '/comments');
+    list.replaceChildren(...(cs.length ? cs.map(c => h('div', { class: 'fp-c' },
+      avatar({ id: c.userId, name: c.name, avatar: c.avatar }),
+      h('div', { class: 'fp-cb' },
+        h('div', { class: 'fp-ch' }, h('b', {}, c.name),
+          h('span', {}, new Date(c.at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })),
+          c.mine || me.admin ? h('button', { class: 'fp-del', title: 'Удалить', onclick: async () => {
+            if (confirm('Удалить комментарий?')) { await api('/api/comments/' + c.id, 'DELETE'); d.commentsCount = Math.max(0, d.commentsCount - 1); renderTabs(d); }
+          } }, '×') : null),
+        h('div', { class: 'fp-ct' }, c.text)))) : [h('p', { class: 'fp-empty' }, 'Пока нет комментариев. Напишите первый!')]));
+  } catch (e) { list.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
+}
+
+// --- похожие по цветам ---
+async function loadSimilar(id, color) {
+  const row = $('#simRow'), title = $('#simTitle');
+  if (!row) return;
+  title.replaceChildren(color ? `Фильмы оттенка ${color}` : 'Похожие по цветам', ...(color ? [h('button', { class: 'fp-reset', onclick: () => loadSimilar(id, null) }, 'Сбросить')] : []));
+  try {
+    const list = await api('/api/films/' + encodeURIComponent(id) + '/similar' + (color ? '?color=' + encodeURIComponent(color) : ''));
+    row.replaceChildren(...(list.length ? list.map(f => h('a', { class: 'fp-sf', href: '/film/' + encodeURIComponent(f.id), title: tt(f), onclick: e => { e.preventDefault(); showFilm(f.id); } },
+      f.poster ? h('img', { src: f.poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'fp-sfn' }, tt(f)),
+      h('span', { class: 'fp-bar' }, ...f.palette.map(c => h('i', { style: 'background:' + c }))),
+      h('small', {}, tt(f)))) : [h('p', { class: 'fp-empty' }, 'Пока нечего показать: палитры вычислены не у других фильмов.')]));
+  } catch (e) { row.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
+}
+
 function renderFilm(d) {
   const [c1, c2, c3, c4] = d.palette || DEFPAL, st = $('#film').style;
   st.setProperty('--c1', c1); st.setProperty('--c2', c2); st.setProperty('--c3', c3); st.setProperty('--c4', c4);
@@ -435,10 +579,11 @@ function renderFilm(d) {
     }
   }, String(k + 1))));
   const btns = [];
-  if (d.trailer) btns.push(h('a', { class: 'fp-btn', href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(d.trailer), target: '_blank', rel: 'noopener' }, '▶ Трейлер'));
+  if (d.trailer) btns.push(h('button', { class: 'fp-btn', onclick: () => openLb([{ video: d.trailer }]) }, '▶ Трейлер'));
   btns.push(h('a', { class: 'fp-btn ghost', href: 'https://www.imdb.com/title/' + encodeURIComponent(d.id) + '/', target: '_blank', rel: 'noopener' }, 'Страница на IMDb'));
   if (!me) btns.push(h('a', { class: 'fp-btn', href: '/auth/login' }, 'Войти, чтобы оценить'));
   const tags = [...(d.genres || []), d.runtime ? d.runtime + ' мин' : ''].filter(Boolean).map(t => h('span', { class: 'fp-tag' }, t));
+  const shots = (d.backdrops || []).map(p => ({ src: 'https://image.tmdb.org/t/p/w1280' + p, thumb: 'https://image.tmdb.org/t/p/w780' + p }));
   $('#filmBody').replaceChildren(
     h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')),
     h('div', { class: 'fp-hero' },
@@ -452,9 +597,14 @@ function renderFilm(d) {
           h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
         vote, hint, h('div', { class: 'fp-btns' }, ...btns))),
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
-    ...(d.palette ? [h('h2', {}, 'Палитра постера'), h('div', { class: 'fp-pal' }, ...d.palette.map(c => h('div', { class: 'fp-sw' }, h('i', { style: 'background:' + c }), c)))] : []),
-    ...(d.backdrops && d.backdrops.length ? [h('h2', {}, 'Кадры'), h('div', { class: 'fp-stills' }, ...d.backdrops.map(p =>
-      h('a', { class: 'fp-still', href: 'https://image.tmdb.org/t/p/w1280' + p, target: '_blank', rel: 'noopener' }, h('img', { src: 'https://image.tmdb.org/t/p/w780' + p, alt: '', loading: 'lazy' }))))] : []));
+    ...(shots.length ? [h('h2', {}, 'Кадры'), h('div', { class: 'fp-stills' }, ...shots.map((s, i) =>
+      h('button', { class: 'fp-still', 'aria-label': 'Открыть кадр', onclick: () => openLb(shots, i) }, h('img', { src: s.thumb, alt: '', loading: 'lazy' }))))] : []),
+    ...(d.palette ? [h('h2', {}, 'Палитра постера (нажмите на цвет, чтобы найти фильмы такого оттенка)'),
+      h('div', { class: 'fp-pal' }, ...d.palette.map(c => h('button', { class: 'fp-sw', title: 'Найти фильмы этого оттенка', onclick: () => loadSimilar(d.id, c) }, h('i', { style: 'background:' + c }), c))),
+      h('h2', { id: 'simTitle' }, ''), h('div', { class: 'fp-sim', id: 'simRow' })] : []),
+    h('div', { class: 'fp-tabs', id: 'fpTabs' }));
+  renderTabs(d);
+  loadSimilar(d.id, null);
 }
 addEventListener('popstate', () => {
   const m = location.pathname.match(/^\/film\/(tt\d+)/);

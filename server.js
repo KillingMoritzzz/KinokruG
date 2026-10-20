@@ -1,6 +1,6 @@
 import express from 'express';
 import jpeg from 'jpeg-js';
-import { makePalette } from './palette.js';
+import { makePalette, hexToLab, labDist } from './palette.js';
 import pg from 'pg';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -32,7 +32,18 @@ await pool.query(`
   alter table films add column if not exists runtime int;
   alter table films add column if not exists palette text;
   alter table films add column if not exists backdrops text;
-  alter table films add column if not exists trailer text;`);
+  alter table films add column if not exists trailer text;
+  create table if not exists users(id text primary key, name text, avatar text, updated_at timestamptz default now());
+  create table if not exists comments(
+    id bigserial primary key, film_id text references films(imdb_id) on delete cascade,
+    user_id text not null, text text not null, created_at timestamptz default now());
+  create index if not exists comments_film on comments(film_id, created_at);`);
+
+// Данные участника (имя и аватар из Discord) нужны, чтобы показывать, кто оценил фильм и кто написал комментарий
+const saveUser = (u, avatar) => pool.query(`
+  insert into users(id, name, avatar) values ($1, $2::text, $3::text)
+  on conflict (id) do update set name = excluded.name, avatar = coalesce(excluded.avatar, users.avatar), updated_at = now()`,
+  [u.id, u.name || null, avatar ?? null]);
 
 // --- подписанные cookie (без внешних библиотек) ---
 const hmac = b => crypto.createHmac('sha256', E.SESSION_SECRET).update(b).digest('base64url');
@@ -89,6 +100,7 @@ app.get('/auth/callback', async (req, res) => {
       fetch('https://discord.com/api/users/@me/guilds', { headers }).then(r => r.json())
     ]);
     if (!Array.isArray(g) || !g.some(x => x.id === E.DISCORD_GUILD_ID)) return res.redirect('/?error=notmember');
+    await saveUser({ id: u.id, name: u.global_name || u.username }, u.avatar || null);
     setCookie(res, 's', sign({ id: u.id, name: u.global_name || u.username, exp: Date.now() / 1000 + 30 * DAY }), 30 * DAY);
     res.redirect('/');
   } catch (e) { console.error(e); res.redirect('/?error=login'); }
@@ -96,8 +108,10 @@ app.get('/auth/callback', async (req, res) => {
 
 app.get('/auth/logout', (req, res) => { setCookie(res, 's', '', 0); res.redirect('/'); });
 
-app.get('/api/me', (req, res) =>
-  res.json(req.user ? { id: req.user.id, name: req.user.name, admin: ADMINS.includes(req.user.id) } : null));
+app.get('/api/me', async (req, res) => {
+  if (req.user) await saveUser(req.user, null);
+  res.json(req.user ? { id: req.user.id, name: req.user.name, admin: ADMINS.includes(req.user.id) } : null);
+});
 
 // --- фильмы и оценки ---
 app.get('/api/films', async (req, res) => {
@@ -122,16 +136,65 @@ app.get('/api/films/:id', async (req, res) => {
   if (!rows.length) return res.status(404).json({ error: 'Фильм не найден' });
   const f = rows[0];
   const pal = parseJson(f.palette, null);
+  // кто как оценил: видно только вошедшим участникам
+  const raters = req.user ? (await pool.query(`
+    select r.user_id id, r.score, u.name, u.avatar from ratings r left join users u on u.id = r.user_id
+    where r.film_id = $1 order by r.score desc, u.name nulls last`, [req.params.id])).rows : null;
+  const commentsCount = (await pool.query('select count(*)::int n from comments where film_id = $1', [req.params.id])).rows[0].n;
   res.json({
-    ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
+    raters, commentsCount, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
     palette: Array.isArray(pal) && pal.length === 4 && pal.every(c => /^#[0-9a-f]{6}$/i.test(c)) ? pal : null,
     trailer: /^[\w-]{6,20}$/.test(f.trailer || '') ? f.trailer : null
   });
 });
 
+// Похожие по цветам: без параметра color сравниваются палитры целиком, с color ищутся фильмы с близким оттенком
+app.get('/api/films/:id/similar', async (req, res) => {
+  const isHex = c => /^#[0-9a-f]{6}$/i.test(c);
+  const { rows } = await pool.query('select imdb_id id, title, title_ru ru, year, poster, palette from films where palette is not null');
+  const all = rows.map(r => ({ ...r, pal: parseJson(r.palette, null) }))
+    .filter(r => Array.isArray(r.pal) && r.pal.length === 4 && r.pal.every(isHex)).map(r => ({ ...r, lab: r.pal.map(hexToLab) }));
+  const cur = all.find(r => r.id === req.params.id);
+  const color = String(req.query.color || '');
+  let ranked;
+  if (isHex(color)) {
+    const lab = hexToLab(color);
+    ranked = all.map(r => ({ r, d: Math.min(...r.lab.map(c => labDist(lab, c))) }));
+  } else if (cur) {
+    ranked = all.map(r => ({ r, d: 0.3 * labDist(cur.lab[0], r.lab[0]) + labDist(cur.lab[1], r.lab[1]) + 1.5 * labDist(cur.lab[2], r.lab[2]) }));
+  } else return res.json([]);
+  res.json(ranked.filter(x => x.r.id !== req.params.id).sort((a, b) => a.d - b.d).slice(0, 8)
+    .map(({ r }) => ({ id: r.id, title: r.title, ru: r.ru, year: r.year, poster: r.poster, palette: r.pal })));
+});
+
+// Комментарии: читать и писать могут только вошедшие участники сервера
+app.get('/api/films/:id/comments', needUser, async (req, res) => {
+  const { rows } = await pool.query(`
+    select c.id, c.user_id, c.text, c.created_at, u.name, u.avatar from comments c left join users u on u.id = c.user_id
+    where c.film_id = $1 order by c.created_at desc limit 200`, [req.params.id]);
+  res.json(rows.map(r => ({ id: r.id, userId: r.user_id, name: r.name || 'Участник', avatar: r.avatar, text: r.text, at: r.created_at, mine: r.user_id === req.user.id })));
+});
+app.post('/api/films/:id/comments', needUser, async (req, res) => {
+  const text = String(req.body?.text || '').trim().slice(0, 1000);
+  if (!text) return res.status(400).json({ error: 'Напишите текст комментария' });
+  const recent = await pool.query(`select 1 from comments where user_id = $1 and created_at > now() - interval '5 seconds' limit 1`, [req.user.id]);
+  if (recent.rowCount) return res.status(429).json({ error: 'Подождите несколько секунд перед следующим комментарием' });
+  await saveUser(req.user, null);
+  const r = await pool.query(`insert into comments(film_id, user_id, text)
+    select $1::text, $2::text, $3::text where exists (select 1 from films where imdb_id = $1::text)`, [req.params.id, req.user.id, text]);
+  if (!r.rowCount) return res.status(404).json({ error: 'Фильм не найден' });
+  res.json({ ok: true });
+});
+app.delete('/api/comments/:cid', needUser, async (req, res) => {
+  if (!/^\d+$/.test(req.params.cid)) return res.status(400).json({ error: 'Неверный запрос' });
+  await pool.query('delete from comments where id = $1::bigint and ($2::boolean or user_id = $3::text)', [req.params.cid, ADMINS.includes(req.user.id), req.user.id]);
+  res.json({ ok: true });
+});
+
 app.post('/api/rate', needUser, async (req, res) => {
   const { filmId, score } = req.body || {};
   if (typeof filmId !== 'string') return res.status(400).json({ error: 'Неверный запрос' });
+  await saveUser(req.user, null);
   if (score === null) {
     await pool.query('delete from ratings where film_id = $1 and user_id = $2', [filmId, req.user.id]);
     return res.json({ ok: true });
