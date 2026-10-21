@@ -53,7 +53,17 @@ await pool.query(`
   create table if not exists person_cache(id int primary key, data text, fetched_at timestamptz default now());
   alter table users add column if not exists seen_news int default 0;
   create table if not exists requests(
-    tmdb_id int primary key, title text, year text, poster text, user_id text not null, created_at timestamptz default now());`);
+    tmdb_id int primary key, title text, year text, poster text, user_id text not null, created_at timestamptz default now());
+  alter table films add column if not exists media text default 'movie';
+  alter table films add column if not exists kind text default 'movie';
+  alter table films add column if not exists kind_manual boolean default false;
+  alter table films add column if not exists seasons int;
+  create table if not exists req_items(
+    media text not null, tmdb_id int not null, title text, year text, poster text, user_id text not null,
+    created_at timestamptz default now(), primary key (media, tmdb_id));
+  with moved as (delete from requests returning tmdb_id, title, year, poster, user_id, created_at)
+    insert into req_items(media, tmdb_id, title, year, poster, user_id, created_at)
+    select 'movie', tmdb_id, title, year, poster, user_id, created_at from moved on conflict do nothing;`);
 
 // Данные участника (имя и аватар из Discord) нужны, чтобы показывать, кто оценил фильм и кто написал комментарий
 const saveUser = (u, avatar) => pool.query(`
@@ -132,7 +142,7 @@ app.get('/api/me', async (req, res) => {
 // --- фильмы и оценки ---
 app.get('/api/films', async (req, res) => {
   const { rows } = await pool.query(`
-    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb,
+    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb, f.kind,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $1 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
@@ -144,7 +154,7 @@ const parseJson = (t, d) => { try { return t ? JSON.parse(t) : d; } catch { retu
 app.get('/api/films/:id', async (req, res) => {
   const { rows } = await pool.query(`
     select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb,
-           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer,
+           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer, f.kind, f.media, f.seasons, f.kind_manual,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $2 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
@@ -212,7 +222,7 @@ app.delete('/api/comments/:cid', needUser, async (req, res) => {
 // --- страницы людей: режиссёры и актёры ---
 async function fetchPerson(pid) {
   try {
-    const r = await fetch(`https://api.themoviedb.org/3/person/${pid}?api_key=${encodeURIComponent(TMDB_KEY)}&language=ru-RU&append_to_response=movie_credits`);
+    const r = await fetch(`https://api.themoviedb.org/3/person/${pid}?api_key=${encodeURIComponent(TMDB_KEY)}&language=ru-RU&append_to_response=movie_credits,tv_credits`);
     if (!r.ok) return null;
     const d = await r.json();
     const yr = x => (x || '').slice(0, 4) || null;
@@ -223,7 +233,8 @@ async function fetchPerson(pid) {
       birthday: /^\d{4}-\d{2}-\d{2}$/.test(d.birthday || '') ? d.birthday : null, place: d.place_of_birth || null,
       bio: (d.biography || '').slice(0, 900),
       acted: [...(d.movie_credits?.cast || [])].sort(pop).slice(0, 40).map(c => ({ id: c.id, title: c.title, year: yr(c.release_date), character: c.character || null })).sort(byYear),
-      directed: uniq([...(d.movie_credits?.crew || [])].filter(c => c.job === 'Director')).sort(pop).slice(0, 40).map(c => ({ id: c.id, title: c.title, year: yr(c.release_date) })).sort(byYear)
+      directed: uniq([...(d.movie_credits?.crew || [])].filter(c => c.job === 'Director')).sort(pop).slice(0, 40).map(c => ({ id: c.id, title: c.title, year: yr(c.release_date) })).sort(byYear),
+      actedTv: [...(d.tv_credits?.cast || [])].sort(pop).slice(0, 100).map(c => ({ id: c.id, character: c.character || null }))
     };
   } catch { return null; }
 }
@@ -241,16 +252,17 @@ app.get('/api/people/:pid', async (req, res) => {
   }
   if (!fp.length && !info) return res.status(404).json({ error: 'Не нашли такого человека' });
   const films = (await pool.query(`
-    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb, f.tmdb_id,
+    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb, f.tmdb_id, f.media,
            avg(r.score)::float srv, count(r.score)::int n
     from films f left join ratings r on r.film_id = f.imdb_id group by f.imdb_id`)).rows;
-  const byId = new Map(films.map(f => [f.id, f])), byTmdb = new Map(films.filter(f => f.tmdb_id).map(f => [f.tmdb_id, f]));
+  const byId = new Map(films.map(f => [f.id, f])), byTmdb = new Map(films.filter(f => f.tmdb_id).map(f => [`${f.media || 'movie'}:${f.tmdb_id}`, f]));
   const onSite = new Map();
   const addRole = (f, kind, text) => { if (!onSite.has(f.id)) onSite.set(f.id, { f, roles: new Map() }); onSite.get(f.id).roles.set(kind, text); };
   for (const x of fp) { const f = byId.get(x.film_id); if (f) addRole(f, x.job, x.job === 'director' ? 'Режиссёр' : (x.character ? `Роль: ${x.character}` : 'Актёр')); }
   const others = { acted: [], directed: [] };
-  for (const c of info?.acted || []) { const f = byTmdb.get(c.id); if (f) addRole(f, 'cast', c.character ? `Роль: ${c.character}` : 'Актёр'); else others.acted.push(c); }
-  for (const c of info?.directed || []) { const f = byTmdb.get(c.id); if (f) addRole(f, 'director', 'Режиссёр'); else others.directed.push(c); }
+  for (const c of info?.acted || []) { const f = byTmdb.get('movie:' + c.id); if (f) addRole(f, 'cast', c.character ? `Роль: ${c.character}` : 'Актёр'); else others.acted.push(c); }
+  for (const c of info?.actedTv || []) { const f = byTmdb.get('tv:' + c.id); if (f) addRole(f, 'cast', c.character ? `Роль: ${c.character}` : 'Актёр'); }
+  for (const c of info?.directed || []) { const f = byTmdb.get('movie:' + c.id); if (f) addRole(f, 'director', 'Режиссёр'); else others.directed.push(c); }
   res.json({
     id: pid, name: info?.name || fp[0]?.name || 'Без имени', photo: info?.photo || null, dept: info?.dept || null,
     birthday: info?.birthday || null, place: info?.place || null, bio: info?.bio || '',
@@ -275,21 +287,22 @@ app.post('/api/news/seen', needUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- добавление фильмов: поиск по названию, заявки участников, импорт подборок (всё через TMDB) ---
+// --- добавление фильмов и сериалов: поиск по названию, заявки участников, импорт подборок (всё через TMDB) ---
 const tmdbGet = async (path, params = {}) => {
   const r = await fetch(`https://api.themoviedb.org/3${path}?${new URLSearchParams({ api_key: TMDB_KEY, ...params })}`);
   if (!r.ok) throw new Error('TMDB ответил ' + r.status);
   return r.json();
 };
-const siteMap = async () => new Map((await pool.query('select tmdb_id, imdb_id from films where tmdb_id is not null')).rows.map(r => [r.tmdb_id, r.imdb_id]));
-const mapMovie = (m, site) => ({
-  tmdbId: m.id, title: m.title || m.original_title, original: m.original_title, year: (m.release_date || '').slice(0, 4) || null,
-  poster: okPath(m.poster_path), siteId: site.get(m.id) || null
+const siteMap = async () => new Map((await pool.query('select media, tmdb_id, imdb_id from films where tmdb_id is not null')).rows.map(r => [`${r.media || 'movie'}:${r.tmdb_id}`, r.imdb_id]));
+const MEDIA = new Set(['movie', 'tv']);
+const mapItem = (m, media, site) => ({
+  media, tmdbId: m.id, title: m.title || m.name || m.original_title || m.original_name, original: m.original_title || m.original_name,
+  year: (m.release_date || m.first_air_date || '').slice(0, 4) || null, poster: okPath(m.poster_path), siteId: site.get(`${media}:${m.id}`) || null
 });
-async function addByTmdb(tmdbId) {
-  const d = await tmdbGet(`/movie/${tmdbId}`, { language: 'en-US' });
-  const imdb = /^tt\d{7,10}$/.test(d.imdb_id || '') ? d.imdb_id : null;
-  if (!imdb) return { ok: false, reason: 'у фильма нет IMDb ID' };
+async function addByTmdb(media, tmdbId) {
+  const d = await tmdbGet(`/${media}/${tmdbId}`, { language: 'en-US', append_to_response: 'external_ids' });
+  const imdb = [d.imdb_id, d.external_ids?.imdb_id].find(x => /^tt\d{7,10}$/.test(x || '')) || null;
+  if (!imdb) return { ok: false, reason: 'у произведения нет IMDb ID' };
   if ((await pool.query('select 1 from films where imdb_id = $1', [imdb])).rowCount) return { ok: true, skipped: true, id: imdb };
   const f = await loadFilm(imdb);
   if (!f) return { ok: false, reason: 'не удалось получить данные' };
@@ -300,56 +313,69 @@ app.get('/api/tmdb/search', needUser, async (req, res) => {
   if (!TMDB_KEY) return res.status(400).json({ error: 'На сервере не задан ключ TMDB_API_KEY' });
   const query = String(req.query.q || '').trim().slice(0, 100);
   if (query.length < 2) return res.json([]);
-  const [d, site, asked] = await Promise.all([tmdbGet('/search/movie', { query, language: 'ru-RU', include_adult: 'false' }), siteMap(), pool.query('select tmdb_id from requests')]);
-  const pending = new Set(asked.rows.map(r => r.tmdb_id));
-  res.json((d.results || []).slice(0, 8).map(m => ({ ...mapMovie(m, site), requested: pending.has(m.id) })));
+  const [d, site, asked] = await Promise.all([tmdbGet('/search/multi', { query, language: 'ru-RU', include_adult: 'false' }), siteMap(), pool.query('select media, tmdb_id from req_items')]);
+  const pending = new Set(asked.rows.map(r => `${r.media}:${r.tmdb_id}`));
+  res.json((d.results || []).filter(m => MEDIA.has(m.media_type)).slice(0, 8)
+    .map(m => ({ ...mapItem(m, m.media_type, site), requested: pending.has(`${m.media_type}:${m.id}`) })));
 });
 app.get('/api/tmdb/discover', needAdmin, async (req, res) => {
   if (!TMDB_KEY) return res.status(400).json({ error: 'На сервере не задан ключ TMDB_API_KEY' });
+  const media = req.query.media === 'tv' ? 'tv' : 'movie', dateKey = media === 'tv' ? 'first_air_date' : 'primary_release_date';
   const p = { language: 'ru-RU', include_adult: 'false', page: String(Math.min(50, Math.max(1, +req.query.page || 1))),
     sort_by: req.query.sort === 'popular' ? 'popularity.desc' : 'vote_average.desc',
     'vote_count.gte': String(Math.max(0, Math.min(1000000, +req.query.votes || 0))) };
   if (/^\d+$/.test(req.query.genre || '')) p.with_genres = req.query.genre;
-  if (/^\d{4}$/.test(req.query.from || '')) p['primary_release_date.gte'] = req.query.from + '-01-01';
-  if (/^\d{4}$/.test(req.query.to || '')) p['primary_release_date.lte'] = req.query.to + '-12-31';
-  const [d, site] = await Promise.all([tmdbGet('/discover/movie', p), siteMap()]);
-  res.json({ page: d.page, pages: Math.min(d.total_pages || 1, 50), results: (d.results || []).map(m => mapMovie(m, site)) });
+  if (/^\d{4}$/.test(req.query.from || '')) p[dateKey + '.gte'] = req.query.from + '-01-01';
+  if (/^\d{4}$/.test(req.query.to || '')) p[dateKey + '.lte'] = req.query.to + '-12-31';
+  const [d, site] = await Promise.all([tmdbGet(`/discover/${media}`, p), siteMap()]);
+  res.json({ page: d.page, pages: Math.min(d.total_pages || 1, 50), results: (d.results || []).map(m => mapItem(m, media, site)) });
 });
 app.post('/api/films/add-tmdb', needAdmin, async (req, res) => {
+  const media = req.body?.media === 'tv' ? 'tv' : 'movie';
   const ids = [...new Set((Array.isArray(req.body?.tmdbIds) ? req.body.tmdbIds : [req.body?.tmdbId]).map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 10);
-  if (!ids.length) return res.status(400).json({ error: 'Не выбрано ни одного фильма' });
+  if (!ids.length) return res.status(400).json({ error: 'Не выбрано ни одного произведения' });
   const out = { added: 0, skipped: 0, failed: [], id: null }, done = [];
   for (let i = 0; i < ids.length; i += 3) {
     await Promise.all(ids.slice(i, i + 3).map(async tid => {
       try {
-        const r = await addByTmdb(tid);
+        const r = await addByTmdb(media, tid);
         if (!r.ok) { out.failed.push(r.reason); return; }
         done.push(tid); out.id = out.id || r.id;
         if (r.skipped) out.skipped++; else out.added++;
       } catch (e) { out.failed.push(e.message); }
     }));
   }
-  if (done.length) await pool.query('delete from requests where tmdb_id = any($1::int[])', [done]);
+  if (done.length) await pool.query('delete from req_items where media = $1 and tmdb_id = any($2::int[])', [media, done]);
   res.json(out);
 });
 app.post('/api/requests', needUser, async (req, res) => {
-  const tmdbId = Number(req.body?.tmdbId);
+  const media = req.body?.media === 'tv' ? 'tv' : 'movie', tmdbId = Number(req.body?.tmdbId);
   if (!TMDB_KEY || !Number.isInteger(tmdbId) || tmdbId < 1) return res.status(400).json({ error: 'Неверный запрос' });
-  if ((await siteMap()).has(tmdbId)) return res.status(409).json({ error: 'Этот фильм уже есть на сайте' });
-  if ((await pool.query('select count(*)::int n from requests where user_id = $1', [req.user.id])).rows[0].n >= 20) return res.status(429).json({ error: 'У вас слишком много заявок на рассмотрении' });
-  const d = await tmdbGet(`/movie/${tmdbId}`, { language: 'ru-RU' });
+  if ((await siteMap()).has(`${media}:${tmdbId}`)) return res.status(409).json({ error: 'Это уже есть на сайте' });
+  if ((await pool.query('select count(*)::int n from req_items where user_id = $1', [req.user.id])).rows[0].n >= 20) return res.status(429).json({ error: 'У вас слишком много заявок на рассмотрении' });
+  const d = await tmdbGet(`/${media}/${tmdbId}`, { language: 'ru-RU' });
   await saveUser(req.user, null);
-  const r = await pool.query(`insert into requests(tmdb_id, title, year, poster, user_id) values ($1, $2::text, $3::text, $4::text, $5::text)
-    on conflict (tmdb_id) do nothing`, [tmdbId, d.title || d.original_title, (d.release_date || '').slice(0, 4) || null, okPath(d.poster_path), req.user.id]);
+  const r = await pool.query(`insert into req_items(media, tmdb_id, title, year, poster, user_id) values ($1::text, $2::int, $3::text, $4::text, $5::text, $6::text)
+    on conflict (media, tmdb_id) do nothing`, [media, tmdbId, d.title || d.name || d.original_title || d.original_name, (d.release_date || d.first_air_date || '').slice(0, 4) || null, okPath(d.poster_path), req.user.id]);
   res.json({ ok: true, already: !r.rowCount });
 });
 app.get('/api/requests', needAdmin, async (req, res) => {
-  const { rows } = await pool.query('select q.tmdb_id, q.title, q.year, q.poster, u.name from requests q left join users u on u.id = q.user_id order by q.created_at');
-  res.json(rows.map(r => ({ tmdbId: r.tmdb_id, title: r.title, year: r.year, poster: r.poster, name: r.name || 'Участник' })));
+  const { rows } = await pool.query('select q.media, q.tmdb_id, q.title, q.year, q.poster, u.name from req_items q left join users u on u.id = q.user_id order by q.created_at');
+  res.json(rows.map(r => ({ media: r.media, tmdbId: r.tmdb_id, title: r.title, year: r.year, poster: r.poster, name: r.name || 'Участник' })));
 });
-app.delete('/api/requests/:tid', needAdmin, async (req, res) => {
-  if (!/^\d+$/.test(req.params.tid)) return res.status(400).json({ error: 'Неверный запрос' });
-  await pool.query('delete from requests where tmdb_id = $1::int', [req.params.tid]);
+app.delete('/api/requests/:media/:tid', needAdmin, async (req, res) => {
+  if (!MEDIA.has(req.params.media) || !/^\d+$/.test(req.params.tid)) return res.status(400).json({ error: 'Неверный запрос' });
+  await pool.query('delete from req_items where media = $1 and tmdb_id = $2::int', [req.params.media, req.params.tid]);
+  res.json({ ok: true });
+});
+
+// --- раздел произведения: определяется автоматически, но администратор может поправить вручную ---
+const KINDS = ['movie', 'series', 'tvshow', 'cartoon', 'cartoon_series', 'anime'];
+app.post('/api/films/:id/kind', needAdmin, async (req, res) => {
+  const kind = String(req.body?.kind || '');
+  if (kind === 'auto') { await pool.query('update films set kind_manual = false where imdb_id = $1', [req.params.id]); return res.json({ ok: true }); }
+  if (!KINDS.includes(kind)) return res.status(400).json({ error: 'Неизвестный раздел' });
+  await pool.query('update films set kind = $2::text, kind_manual = true where imdb_id = $1', [req.params.id, kind]);
   res.json({ ok: true });
 });
 
@@ -386,6 +412,16 @@ const TMDB_KEY = (E.TMDB_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 let ruError = '';
 const okPath = x => (/^\/[\w-]+\.(jpg|jpeg|png)$/i.test(x || '') ? x : null);
 const uniq = a => a.filter((c, i) => a.findIndex(z => z.id === c.id) === i);
+const TV_SHOW_TYPES = ['Reality', 'Talk Show', 'News', 'Documentary'];
+// Раздел сайта по данным TMDB: аниме = анимация на японском, остальная анимация = мультфильмы и мультсериалы
+function kindOf(media, x) {
+  const ids = (x.genres || []).map(g => g.id), anim = ids.includes(16);
+  if (anim && x.original_language === 'ja') return 'anime';
+  if (media === 'movie') return anim ? 'cartoon' : 'movie';
+  if (anim) return 'cartoon_series';
+  if (TV_SHOW_TYPES.includes(x.type) || ids.some(i => [10764, 10767, 10763].includes(i))) return 'tvshow';
+  return 'series';
+}
 async function fetchTmdb(id) {
   if (!TMDB_KEY) return null;
   try {
@@ -393,25 +429,33 @@ async function fetchTmdb(id) {
     const r = await fetch(`https://api.themoviedb.org/3/find/${id}?${q}&external_source=imdb_id&language=ru-RU`);
     const d = await r.json();
     if (!r.ok) { ruError = `TMDB ответил ${r.status}: ${d.status_message || ''}`; return null; }
-    const m = d.movie_results?.[0];
+    const mv = d.movie_results?.[0], tv = d.tv_results?.[0], m = mv || tv;
     if (!m) return null;
+    const media = mv ? 'movie' : 'tv';
+    const title = media === 'movie' ? m.title : m.name;
+    const orig = media === 'movie' ? m.original_title : m.original_name;
+    const date = media === 'movie' ? m.release_date : m.first_air_date;
     const meta = {
-      title: m.original_title || m.title || null, year: (m.release_date || '').slice(0, 4) || null,
+      title: orig || title || null, year: (date || '').slice(0, 4) || null,
       poster: okPath(m.poster_path) ? 'https://image.tmdb.org/t/p/w500' + m.poster_path : null
     };
-    const r2 = await fetch(`https://api.themoviedb.org/3/movie/${m.id}?${q}&language=ru-RU&append_to_response=videos,images,credits&include_video_language=ru,en&include_image_language=en,null`);
+    const r2 = await fetch(`https://api.themoviedb.org/3/${media}/${m.id}?${q}&language=ru-RU&append_to_response=videos,images,credits&include_video_language=ru,en&include_image_language=en,null`);
     const x = await r2.json();
-    if (!r2.ok) return { ru: m.title || null, tmdbId: m.id, meta };
+    if (!r2.ok) return { ru: title || null, tmdbId: m.id, media, meta };
     const vids = (x.videos?.results || []).filter(v => v.site === 'YouTube' && v.type === 'Trailer');
     const trailer = (vids.find(v => v.iso_639_1 === 'ru') || vids.find(v => v.official) || vids[0])?.key || null;
     const bk = x.images?.backdrops || [], clean = bk.filter(b => !b.iso_639_1);
+    const crew = x.credits?.crew || [];
+    const directors = media === 'movie' ? uniq(crew.filter(c => c.job === 'Director')) : (x.created_by || []);
     return {
-      ru: m.title || null, overview: x.overview || m.overview || null,
-      genres: (x.genres || []).map(g => g.name), runtime: x.runtime || null, trailer,
-      composer: (x.credits?.crew || []).filter(c => c.job === 'Original Music Composer').map(c => c.name).slice(0, 3).join(', ') || null,
-      tmdbId: m.id, meta,
+      ru: title || null, overview: x.overview || m.overview || null,
+      genres: (x.genres || []).map(g => g.name),
+      runtime: media === 'movie' ? (x.runtime || null) : ((x.episode_run_time || [])[0] || null),
+      trailer,
+      composer: crew.filter(c => c.job === 'Original Music Composer').map(c => c.name).slice(0, 3).join(', ') || null,
+      tmdbId: m.id, media, meta, kind: kindOf(media, x), seasons: media === 'tv' ? (x.number_of_seasons || null) : null,
       people: {
-        directors: uniq((x.credits?.crew || []).filter(c => c.job === 'Director')).slice(0, 3).map(c => ({ id: c.id, name: c.name, photo: okPath(c.profile_path) })),
+        directors: directors.slice(0, 3).map(c => ({ id: c.id, name: c.name, photo: okPath(c.profile_path) })),
         cast: (x.credits?.cast || []).slice(0, 10).map(c => ({ id: c.id, name: c.name, character: c.character || null, photo: okPath(c.profile_path) }))
       },
       backdrops: (clean.length >= 4 ? clean : bk).slice(0, 8).map(b => b.file_path)
@@ -440,10 +484,12 @@ async function loadFilm(id) {
 const saveExtraRow = (id, tm, pal) => pool.query(`
   update films set title_ru = coalesce($2::text, title_ru), overview = coalesce($3::text, overview),
     genres = coalesce($4::text, genres), runtime = coalesce($5::int, runtime),
-    backdrops = coalesce($6::text, backdrops), trailer = coalesce($7::text, trailer), palette = coalesce($8::text, palette), composer = coalesce($9::text, composer), tmdb_id = coalesce($10::int, tmdb_id)
+    backdrops = coalesce($6::text, backdrops), trailer = coalesce($7::text, trailer), palette = coalesce($8::text, palette), composer = coalesce($9::text, composer), tmdb_id = coalesce($10::int, tmdb_id),
+    media = coalesce($11::text, media), seasons = coalesce($12::int, seasons),
+    kind = case when kind_manual then kind else coalesce($13::text, kind) end
   where imdb_id = $1`,
   [id, tm?.ru || null, tm?.overview || null, tm?.genres?.length ? JSON.stringify(tm.genres) : null, tm?.runtime || null,
-   tm?.backdrops?.length ? JSON.stringify(tm.backdrops) : null, tm?.trailer || null, pal ? JSON.stringify(pal) : null, tm?.composer || null, tm?.tmdbId || null]);
+   tm?.backdrops?.length ? JSON.stringify(tm.backdrops) : null, tm?.trailer || null, pal ? JSON.stringify(pal) : null, tm?.composer || null, tm?.tmdbId || null, tm?.media || null, tm?.seasons || null, tm?.kind || null]);
 async function saveExtra(id, tm, pal) {
   await saveExtraRow(id, tm, pal);
   if (tm?.people) await savePeople(id, tm.people);
@@ -510,7 +556,7 @@ app.delete('/api/films/:id', needAdmin, async (req, res) => {
 });
 
 const PUB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
-app.get(['/film/:id', '/person/:id'], (req, res) => res.sendFile(path.join(PUB, 'index.html')));
+app.get(['/film/:id', '/person/:id', '/movies', '/series', '/tv', '/cartoons', '/cartoon-series', '/anime', '/chzl'], (req, res) => res.sendFile(path.join(PUB, 'index.html')));
 app.use(express.static(PUB));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Ошибка сервера' }); });
 app.listen(E.PORT || 3000, () => console.log('Сайт запущен: ' + BASE));
