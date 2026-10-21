@@ -198,13 +198,6 @@ button.fp-btn{border:0;font:inherit;font-weight:600;cursor:pointer}
 .lb-next{right:14px;top:50%;transform:translateY(-50%)}
 .lb-count{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:13px}
 @media (max-width:700px){.lb-prev{left:6px}.lb-next{right:6px}}
-.fp-composer{color:rgba(255,255,255,.75);margin:0 0 10px}
-.fp-tracks{margin:0 0 14px;padding-left:28px}
-.fp-tracks li{padding:7px 0;border-bottom:1px solid rgba(255,255,255,.08)}
-.fp-tracks li::marker{color:var(--accent)}
-.fp-tracks li.unk .tr{color:rgba(255,255,255,.6);font-style:italic}
-.fp-tracks .row{display:flex;gap:10px;align-items:baseline}
-.fp-tracks .tr{flex:1;min-width:0;overflow-wrap:anywhere}
 .fp-dir{margin:0 0 14px;color:rgba(255,255,255,.85)}
 .fp-pl{color:var(--c4,#fff);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 60%,transparent)}
 .fp-pl:hover{border-bottom-color:var(--accent)}
@@ -218,6 +211,37 @@ button.fp-btn{border:0;font:inherit;font-weight:600;cursor:pointer}
 .fp-sim.big .fp-sf{width:150px}
 .fp-works{margin:0;padding:0;list-style:none;columns:2 280px;column-gap:28px}
 .fp-works li{padding:4px 0;color:rgba(255,255,255,.82);break-inside:avoid}
+a.s{text-decoration:none;transition:filter .2s,transform .2s}
+a.s.imdb:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.fp-imdb{display:block;color:inherit;text-decoration:none;transition:transform .2s,border-color .2s}
+.fp-imdb:hover{transform:translateY(-2px);border-color:var(--accent)}
+.res .rt{flex:1;min-width:0}
+.res .btn{flex:none;padding:7px 12px;font-size:14px}
+.res.more{opacity:.85}
+.mi{width:40px;text-align:center;font-size:20px;flex:none}
+.admin.reqs{flex-direction:column;align-items:stretch}
+.req{display:flex;gap:12px;align-items:center}
+.req img,.req .th{width:36px;height:54px;border-radius:4px;object-fit:cover;background:var(--line);flex:none}
+.req .rt{flex:1;min-width:0}
+.req small{display:block;color:var(--muted)}
+details.imp{display:block}
+details.imp summary{cursor:pointer;font-weight:600}
+.imp-filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.imp-filters input{width:130px;flex:none;min-width:0}
+.imp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.tile{display:block;position:relative;cursor:pointer}
+.tile img,.tile .th{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:8px;background:var(--line)}
+.tile input{position:absolute;top:6px;left:6px;width:18px;height:18px;flex:none;min-width:0}
+.tile small{display:block;margin-top:4px;font-size:12px;color:var(--muted)}
+.tile.on{opacity:.45;cursor:default}
+.imp-foot{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;width:100%}
+#news{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(5,6,10,.7);backdrop-filter:blur(6px);opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
+#news.on{opacity:1;visibility:visible}
+.news-in{width:100%;max-width:460px;max-height:90vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 24px 22px;transform:translateY(12px);transition:transform .35s}
+#news.on .news-in{transform:none}
+.news-in h2{margin:0 0 12px;font:700 24px/1.2 "Iowan Old Style","Palatino Linotype",Georgia,serif}
+.news-in ul{margin:0 0 18px;padding-left:20px}
+.news-in li{margin:6px 0}
 </style>
 </head>
 <body>
@@ -235,6 +259,7 @@ button.fp-btn{border:0;font:inherit;font-weight:600;cursor:pointer}
 <div id="modal"><div class="modal-in"><button class="x" id="mclose" aria-label="Закрыть">×</button><div id="modalBody"></div></div></div>
 <div id="film"><div id="filmbg"></div><div class="fp-wrap" id="filmBody"></div></div>
 <div id="lb"><button class="lb-x" id="lbX" aria-label="Закрыть">×</button><button class="lb-nav lb-prev" id="lbPrev" aria-label="Назад">‹</button><div id="lbStage"></div><button class="lb-nav lb-next" id="lbNext" aria-label="Вперёд">›</button><div class="lb-count" id="lbCount"></div></div>
+<div id="news"><div class="news-in"><h2 id="newsTitle"></h2><ul id="newsList"></ul><button class="btn" id="newsOk">Понятно</button></div></div>
 <div id="hero"><div class="hero-card">
   <h1 id="heroTitle"></h1>
   <p>Оцениваем фильмы вместе: рейтинг IMDb и оценки участников нашего сервера Discord.</p>
@@ -321,6 +346,8 @@ function renderAdmin() {
         if (d.error) errs.add(d.error);
       }
       return `Фильмов на сайте: ${total}. Русских названий: ${ru}. Палитр вычислено: ${pals}. Рейтингов IMDb обновлено: ${rated}.` + (!key ? ' Ключ TMDB_API_KEY на сервере не задан.' : '') + (errs.size ? ' Причина: ' + [...errs].join('; ') : ''); }) }, 'Обновить рейтинги и названия')));
+  $('#adminBox').append(h('div', { id: 'reqBox' }), importPanel());
+  loadRequests();
 }
 
 function render() {
@@ -342,7 +369,7 @@ function cardEl(f) {
       h('div', {},
         h('h2', {}, h('a', { class: 'ttl', href: '/film/' + encodeURIComponent(f.id), onclick: e => { e.preventDefault(); showFilm(f.id); } }, tt(f))), h('div', { class: 'year' }, [f.year, f.ru && f.ru !== f.title ? f.title : ''].filter(Boolean).join(' · ')),
         h('div', { class: 'scores' },
-          h('div', { class: 's imdb' }, h('b', {}, fmt(f.imdb)), h('small', {}, 'IMDb')),
+          h('a', { class: 's imdb', href: 'https://www.imdb.com/title/' + encodeURIComponent(f.id) + '/', target: '_blank', rel: 'noopener', title: 'Открыть на IMDb' }, h('b', {}, fmt(f.imdb)), h('small', {}, 'IMDb ↗')),
           h('div', { class: 's srv' }, h('b', {}, fmt(f.srv)), h('small', {}, `Сервер, оценок: ${f.n}`))),
         h('div', { class: 'vote' }, ...btns),
         h('div', { class: 'hint' }, me ? (f.mine ? `Ваша оценка: ${f.mine}. Нажмите на неё ещё раз, чтобы убрать.` : 'Выберите оценку от 1 до 10') : 'Войдите через Discord, чтобы оценить'),
@@ -455,6 +482,8 @@ function runSearch() {
     f.poster ? h('img', { src: f.poster, alt: '', referrerpolicy: 'no-referrer' }) : h('span', { class: 'th' }),
     h('div', { class: 'rt' }, h('b', {}, tt(f)), h('small', {}, [f.ru && f.ru !== f.title ? f.title : '', f.year, 'IMDb ' + fmt(f.imdb), 'сервер ' + fmt(f.srv)].filter(Boolean).join(' · ')))))
     : [h('div', { class: 'none' }, films.length ? 'Такого фильма на сайте пока нет' : 'На сайте пока нет фильмов')]));
+  if (me) box.append(h('div', { class: 'res more', onclick: () => searchTmdb($('#q').value.trim()) }, h('span', { class: 'mi' }, '🔎'),
+    h('div', { class: 'rt' }, h('b', {}, 'Не нашли? Искать среди всех фильмов'), h('small', {}, me.admin ? 'Найденный фильм можно сразу добавить на сайт' : 'Найденный фильм можно предложить к добавлению'))));
 }
 function openFilm(id) { showFilm(id); }
 function closeModal() { openId = null; renderModal(); }
@@ -575,6 +604,117 @@ async function commentsPanel(d, panel) {
   } catch (e) { list.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
 }
 
+// --- окно «Что нового» ---
+async function checkNews() {
+  try {
+    const n = await api('/api/news');
+    if (!n) return;
+    let seen = n.seen;
+    if (seen === null) { try { seen = +localStorage.getItem('newsSeen') >= n.id; } catch { seen = false; } }
+    if (seen) return;
+    $('#newsTitle').textContent = n.title;
+    $('#newsList').replaceChildren(...n.items.map(t => h('li', {}, t)));
+    $('#news').classList.add('on');
+    $('#newsOk').onclick = async () => {
+      $('#news').classList.remove('on');
+      try { if (me) await api('/api/news/seen', 'POST', { id: n.id }); else localStorage.setItem('newsSeen', String(n.id)); } catch {}
+    };
+  } catch {}
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && $('#news').classList.contains('on')) $('#newsOk').click(); });
+
+// --- добавление фильмов: поиск по всем фильмам, заявки, импорт подборок ---
+async function searchTmdb(q) {
+  const box = $('#results');
+  if (q.length < 2) return;
+  box.replaceChildren(h('div', { class: 'none' }, 'Ищу…'));
+  try {
+    const list = await api('/api/tmdb/search?q=' + encodeURIComponent(q));
+    box.replaceChildren(...(list.length ? list.map(tmdbRow) : [h('div', { class: 'none' }, 'Ничего не нашлось')]),
+      h('div', { class: 'res more', onclick: runSearch }, h('div', { class: 'rt' }, h('small', {}, '← Вернуться к фильмам на сайте'))));
+  } catch (e) { box.replaceChildren(h('div', { class: 'none' }, e.message)); }
+}
+function tmdbRow(m) {
+  const btn = h('button', { class: 'btn' }, '');
+  if (m.siteId) { btn.textContent = 'Открыть'; btn.className = 'btn ghost'; btn.onclick = () => showFilm(m.siteId); }
+  else if (me.admin) {
+    btn.textContent = 'Добавить';
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = 'Добавляю…';
+      try { const d = await api('/api/films/add-tmdb', 'POST', { tmdbId: m.tmdbId }); await load(); if (d.id) showFilm(d.id); else btn.textContent = 'Не удалось'; }
+      catch (e) { btn.textContent = 'Ошибка'; btn.disabled = false; }
+    };
+  } else if (m.requested) { btn.textContent = 'Уже предложен'; btn.disabled = true; }
+  else {
+    btn.textContent = 'Предложить';
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try { const d = await api('/api/requests', 'POST', { tmdbId: m.tmdbId }); btn.textContent = d.already ? 'Уже предложен' : 'Заявка отправлена'; }
+      catch (e) { btn.textContent = e.message.length < 32 ? e.message : 'Ошибка'; }
+    };
+  }
+  return h('div', { class: 'res' }, m.poster ? h('img', { src: 'https://image.tmdb.org/t/p/w92' + m.poster, alt: '' }) : h('span', { class: 'th' }),
+    h('div', { class: 'rt' }, h('b', {}, m.title), h('small', {}, [m.original !== m.title ? m.original : '', m.year].filter(Boolean).join(' · '))), btn);
+}
+async function loadRequests() {
+  const box = $('#reqBox');
+  if (!box) return;
+  try {
+    const list = await api('/api/requests');
+    $('#toRating').textContent = list.length ? `Весь рейтинг · заявок: ${list.length}` : 'Весь рейтинг';
+    box.replaceChildren(...(list.length ? [h('div', { class: 'admin reqs' }, h('b', {}, `Заявки на добавление (${list.length})`), ...list.map(q => h('div', { class: 'req' },
+      q.poster ? h('img', { src: 'https://image.tmdb.org/t/p/w92' + q.poster, alt: '' }) : h('span', { class: 'th' }),
+      h('div', { class: 'rt' }, h('b', {}, q.title + (q.year ? ` (${q.year})` : '')), h('small', {}, 'Предложил: ' + q.name)),
+      h('button', { class: 'btn', onclick: async e => {
+        e.target.disabled = true;
+        try { await api('/api/films/add-tmdb', 'POST', { tmdbId: q.tmdbId }); say('Добавлено: ' + q.title); await load(); } catch (er) { say(er.message); }
+        loadRequests();
+      } }, 'Добавить'),
+      h('button', { class: 'btn ghost', onclick: async () => { await api('/api/requests/' + q.tmdbId, 'DELETE'); loadRequests(); } }, 'Отклонить'))))] : []));
+  } catch {}
+}
+const GENRES = [[28, 'Боевик'], [12, 'Приключения'], [16, 'Мультфильм'], [35, 'Комедия'], [80, 'Криминал'], [99, 'Документальный'], [18, 'Драма'], [10751, 'Семейный'], [14, 'Фэнтези'], [36, 'История'], [27, 'Ужасы'], [10402, 'Музыка'], [9648, 'Детектив'], [10749, 'Мелодрама'], [878, 'Фантастика'], [53, 'Триллер'], [10752, 'Военный'], [37, 'Вестерн']];
+function importPanel() {
+  const sort = h('select', {}, h('option', { value: 'rating' }, 'Лучшие по рейтингу'), h('option', { value: 'popular' }, 'Популярные'));
+  const genre = h('select', {}, h('option', { value: '' }, 'Любой жанр'), ...GENRES.map(([id, n]) => h('option', { value: id }, n)));
+  const from = h('input', { type: 'number', placeholder: 'Год от', min: 1900, max: 2100 }), to = h('input', { type: 'number', placeholder: 'Год до', min: 1900, max: 2100 });
+  const votes = h('input', { type: 'number', placeholder: 'Мин. голосов', value: 5000, min: 0 });
+  const grid = h('div', { class: 'imp-grid' }), foot = h('div', { class: 'imp-foot' });
+  let page = 0, pages = 1; const picked = new Set();
+  function drawFoot() {
+    foot.replaceChildren(...(page < pages ? [h('button', { class: 'btn ghost', onclick: () => loadPage(false) }, 'Показать ещё')] : []),
+      h('button', { class: 'btn', disabled: !picked.size, onclick: addPicked }, `Добавить выбранные (${picked.size})`));
+  }
+  async function loadPage(reset) {
+    if (reset) { page = 0; grid.replaceChildren(); picked.clear(); }
+    foot.textContent = 'Загружаю…';
+    try {
+      const q = new URLSearchParams({ sort: sort.value, genre: genre.value, from: from.value, to: to.value, votes: votes.value || 0, page: page + 1 });
+      const d = await api('/api/tmdb/discover?' + q);
+      page = d.page; pages = d.pages;
+      grid.append(...d.results.map(m => {
+        const on = !!m.siteId, cb = h('input', { type: 'checkbox', disabled: on });
+        if (!on) { cb.checked = true; picked.add(m.tmdbId); }
+        cb.onchange = () => { if (cb.checked) picked.add(m.tmdbId); else picked.delete(m.tmdbId); drawFoot(); };
+        return h('label', { class: 'tile' + (on ? ' on' : '') }, m.poster ? h('img', { src: 'https://image.tmdb.org/t/p/w185' + m.poster, alt: '', loading: 'lazy' }) : h('span', { class: 'th' }), cb,
+          h('small', {}, `${m.title}${m.year ? ' (' + m.year + ')' : ''}${on ? ' · уже на сайте' : ''}`));
+      }));
+      drawFoot();
+    } catch (e) { foot.textContent = e.message; }
+  }
+  async function addPicked() {
+    const ids = [...picked]; let added = 0, failed = 0;
+    for (let i = 0; i < ids.length; i += 5) {
+      say(`Добавляю… ${i} из ${ids.length}`);
+      try { const d = await api('/api/films/add-tmdb', 'POST', { tmdbIds: ids.slice(i, i + 5) }); added += d.added; failed += d.failed.length; } catch { failed += 5; }
+    }
+    say(`Добавлено: ${added}` + (failed ? `, не получилось: ${failed}` : ''));
+    await load(); loadPage(true);
+  }
+  return h('details', { class: 'admin imp' }, h('summary', {}, 'Импорт подборки фильмов из TMDB'),
+    h('div', { class: 'imp-filters' }, sort, genre, from, to, votes, h('button', { class: 'btn', onclick: () => loadPage(true) }, 'Показать')), grid, foot);
+}
+
 // --- похожие по цветам ---
 async function loadSimilar(id, color) {
   const row = $('#simRow'), title = $('#simTitle');
@@ -587,26 +727,6 @@ async function loadSimilar(id, color) {
       h('span', { class: 'fp-bar' }, ...f.palette.map(c => h('i', { style: 'background:' + c }))),
       h('small', {}, tt(f)))) : [h('p', { class: 'fp-empty' }, 'Пока нечего показать: палитры вычислены не у других фильмов.')]));
   } catch (e) { row.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
-}
-
-// --- музыка из фильма: простой список ---
-function musicBlock(d) {
-  const ta = h('textarea', { rows: 3, maxlength: 6000, placeholder: 'По одному треку в строке: Исполнитель — Название' });
-  const err = h('div', { class: 'fp-err' });
-  const add = async body => { try { await api('/api/films/' + encodeURIComponent(d.id) + '/tracks', 'POST', body); await showFilm(d.id, false); } catch (e) { err.textContent = e.message; } };
-  const tracks = d.tracks || [];
-  const list = tracks.length
-    ? h('ol', { class: 'fp-tracks' }, ...tracks.map(t => h('li', { class: t.unknown ? 'unk' : '' }, h('div', { class: 'row' },
-        h('span', { class: 'tr' }, t.unknown ? `${t.artist || 'Композитор'} — ID` : (t.artist ? `${t.artist} — ${t.title}` : t.title)),
-        t.canDelete ? h('button', { class: 'fp-del', title: 'Удалить', onclick: async () => { await api('/api/tracks/' + t.id, 'DELETE'); await showFilm(d.id, false); } }, '×') : null))))
-    : h('p', { class: 'fp-empty' }, 'Список пока пуст.' + (me ? ' Добавьте первые треки!' : ''));
-  return h('div', {},
-    d.composer ? h('p', { class: 'fp-composer' }, 'Композитор: ' + d.composer) : null,
-    list,
-    me ? h('div', { class: 'fp-form' }, ta, h('div', { class: 'fp-formrow' }, err,
-        h('button', { class: 'fp-btn ghost', onclick: () => add({ unknown: true }) }, '+ Трек без названия (ID)'),
-        h('button', { class: 'fp-btn', onclick: () => { if (ta.value.trim()) add({ text: ta.value }); } }, 'Добавить')))
-       : h('p', { class: 'fp-empty' }, 'Войдите через Discord, чтобы добавлять треки.'));
 }
 
 // --- страница человека (режиссёр или актёр) ---
@@ -667,7 +787,7 @@ function renderFilm(d) {
         h('div', { class: 'fp-orig' }, [d.ru && d.ru !== d.title ? d.title : '', d.year].filter(Boolean).join(' · ')),
         h('div', { class: 'fp-meta' }, ...tags),
         h('div', { class: 'fp-scores' },
-          h('div', { class: 'fp-s' }, h('b', {}, fmt(d.imdb)), h('small', {}, 'IMDb')),
+          h('a', { class: 'fp-s fp-imdb', href: 'https://www.imdb.com/title/' + encodeURIComponent(d.id) + '/', target: '_blank', rel: 'noopener', title: 'Открыть на IMDb' }, h('b', {}, fmt(d.imdb)), h('small', {}, 'IMDb ↗')),
           h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
         vote, hint, h('div', { class: 'fp-btns' }, ...btns))),
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
@@ -678,7 +798,6 @@ function renderFilm(d) {
         h('b', {}, p.name), h('small', {}, p.character || ''))))] : [])] : []),
     ...(shots.length ? [h('h2', {}, 'Кадры'), h('div', { class: 'fp-stills' }, ...shots.map((s, i) =>
       h('button', { class: 'fp-still', 'aria-label': 'Открыть кадр', onclick: () => openLb(shots, i) }, h('img', { src: s.thumb, alt: '', loading: 'lazy' }))))] : []),
-    h('h2', {}, 'Музыка из фильма'), musicBlock(d),
     ...(d.palette ? [h('h2', {}, 'Палитра постера (нажмите на цвет, чтобы найти фильмы такого оттенка)'),
       h('div', { class: 'fp-pal' }, ...d.palette.map(c => h('button', { class: 'fp-sw', title: 'Найти фильмы этого оттенка', onclick: () => loadSimilar(d.id, c) }, h('i', { style: 'background:' + c }), c))),
       h('h2', { id: 'simTitle' }, ''), h('div', { class: 'fp-sim', id: 'simRow' })] : []),
@@ -706,6 +825,7 @@ addEventListener('popstate', () => {
   const fm = location.pathname.match(/^\/film\/(tt\d+)/);
   const pm = location.pathname.match(/^\/person\/(\d+)/);
   if (fm) showFilm(fm[1], false); else if (pm) showPerson(pm[1], false);
+  checkNews();
   try { await load(); } catch (e) { say(e.message); }
 })();
 </script>
