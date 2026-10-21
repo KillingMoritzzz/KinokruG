@@ -37,7 +37,19 @@ await pool.query(`
   create table if not exists comments(
     id bigserial primary key, film_id text references films(imdb_id) on delete cascade,
     user_id text not null, text text not null, created_at timestamptz default now());
-  create index if not exists comments_film on comments(film_id, created_at);`);
+  create index if not exists comments_film on comments(film_id, created_at);
+  alter table films add column if not exists composer text;
+  create table if not exists tracks(
+    id bigserial primary key, film_id text references films(imdb_id) on delete cascade,
+    user_id text not null, artist text, title text, unknown boolean not null default false);
+  create index if not exists tracks_film on tracks(film_id, id);
+  alter table films add column if not exists tmdb_id int;
+  create table if not exists film_people(
+    film_id text references films(imdb_id) on delete cascade, person_id int not null,
+    name text, job text, character text, ord int, photo text);
+  create index if not exists film_people_film on film_people(film_id);
+  create index if not exists film_people_person on film_people(person_id);
+  create table if not exists person_cache(id int primary key, data text, fetched_at timestamptz default now());`);
 
 // Данные участника (имя и аватар из Discord) нужны, чтобы показывать, кто оценил фильм и кто написал комментарий
 const saveUser = (u, avatar) => pool.query(`
@@ -128,7 +140,7 @@ const parseJson = (t, d) => { try { return t ? JSON.parse(t) : d; } catch { retu
 app.get('/api/films/:id', async (req, res) => {
   const { rows } = await pool.query(`
     select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb,
-           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer,
+           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $2 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
@@ -141,8 +153,13 @@ app.get('/api/films/:id', async (req, res) => {
     select r.user_id id, r.score, u.name, u.avatar from ratings r left join users u on u.id = r.user_id
     where r.film_id = $1 order by r.score desc, u.name nulls last`, [req.params.id])).rows : null;
   const commentsCount = (await pool.query('select count(*)::int n from comments where film_id = $1', [req.params.id])).rows[0].n;
+  const isAdmin = !!req.user && ADMINS.includes(req.user.id);
+  const tracks = (await pool.query('select id, user_id, artist, title, unknown from tracks where film_id = $1 order by id', [req.params.id])).rows
+    .map(t => ({ id: t.id, artist: t.artist, title: t.title, unknown: t.unknown, canDelete: isAdmin || (!!req.user && t.user_id === req.user.id) }));
+  const ppl = (await pool.query('select person_id id, name, job, character, photo from film_people where film_id = $1 order by job, ord', [req.params.id])).rows;
+  const people = { directors: ppl.filter(x => x.job === 'director'), cast: ppl.filter(x => x.job === 'cast') };
   res.json({
-    raters, commentsCount, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
+    raters, commentsCount, tracks, people, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
     palette: Array.isArray(pal) && pal.length === 4 && pal.every(c => /^#[0-9a-f]{6}$/i.test(c)) ? pal : null,
     trailer: /^[\w-]{6,20}$/.test(f.trailer || '') ? f.trailer : null
   });
@@ -191,6 +208,84 @@ app.delete('/api/comments/:cid', needUser, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Музыка из фильма: простой список треков. Добавлять могут вошедшие участники, удалять автор или администратор.
+app.post('/api/films/:id/tracks', needUser, async (req, res) => {
+  const have = +(await pool.query('select count(*) from tracks where film_id = $1', [req.params.id])).rows[0].count;
+  if (req.body?.unknown) {
+    if (have >= 150) return res.status(400).json({ error: 'Слишком много треков у одного фильма' });
+    const r = await pool.query(`insert into tracks(film_id, user_id, artist, title, unknown)
+      select $1::text, $2::text, (select composer from films where imdb_id = $1::text), null, true
+      where exists (select 1 from films where imdb_id = $1::text)`, [req.params.id, req.user.id]);
+    return r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Фильм не найден' });
+  }
+  const rows = String(req.body?.text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(0, 60).map(l => {
+    const m = l.split(/\s+[—–-]\s+/);
+    return m.length >= 2 ? { artist: m[0].slice(0, 120), title: m.slice(1).join(' — ').slice(0, 160) } : { artist: null, title: l.slice(0, 160) };
+  });
+  if (!rows.length) return res.status(400).json({ error: 'Напишите хотя бы один трек' });
+  if (have + rows.length > 150) return res.status(400).json({ error: 'Слишком много треков у одного фильма' });
+  const r = await pool.query(`insert into tracks(film_id, user_id, artist, title)
+    select $1::text, $2::text, x.a, x.t from unnest($3::text[], $4::text[]) as x(a, t)
+    where exists (select 1 from films where imdb_id = $1::text)`, [req.params.id, req.user.id, rows.map(x => x.artist), rows.map(x => x.title)]);
+  return r.rowCount ? res.json({ ok: true, added: r.rowCount }) : res.status(404).json({ error: 'Фильм не найден' });
+});
+app.delete('/api/tracks/:tid', needUser, async (req, res) => {
+  if (!/^\d+$/.test(req.params.tid)) return res.status(400).json({ error: 'Неверный запрос' });
+  await pool.query('delete from tracks where id = $1::bigint and ($2::boolean or user_id = $3::text)', [req.params.tid, ADMINS.includes(req.user.id), req.user.id]);
+  res.json({ ok: true });
+});
+
+// --- страницы людей: режиссёры и актёры ---
+async function fetchPerson(pid) {
+  try {
+    const r = await fetch(`https://api.themoviedb.org/3/person/${pid}?api_key=${encodeURIComponent(TMDB_KEY)}&language=ru-RU&append_to_response=movie_credits`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    const yr = x => (x || '').slice(0, 4) || null;
+    const byYear = (a, b) => (+b.year || 0) - (+a.year || 0);
+    const pop = (a, b) => (b.popularity || 0) - (a.popularity || 0);
+    return {
+      name: d.name || null, photo: okPath(d.profile_path), dept: d.known_for_department || null,
+      birthday: /^\d{4}-\d{2}-\d{2}$/.test(d.birthday || '') ? d.birthday : null, place: d.place_of_birth || null,
+      bio: (d.biography || '').slice(0, 900),
+      acted: [...(d.movie_credits?.cast || [])].sort(pop).slice(0, 40).map(c => ({ id: c.id, title: c.title, year: yr(c.release_date), character: c.character || null })).sort(byYear),
+      directed: uniq([...(d.movie_credits?.crew || [])].filter(c => c.job === 'Director')).sort(pop).slice(0, 40).map(c => ({ id: c.id, title: c.title, year: yr(c.release_date) })).sort(byYear)
+    };
+  } catch { return null; }
+}
+app.get('/api/people/:pid', async (req, res) => {
+  if (!/^\d+$/.test(req.params.pid)) return res.status(400).json({ error: 'Неверный запрос' });
+  const pid = +req.params.pid;
+  const fp = (await pool.query('select film_id, job, character, name from film_people where person_id = $1', [pid])).rows;
+  let info = null;
+  const cached = (await pool.query(`select data from person_cache where id = $1 and fetched_at > now() - interval '30 days'`, [pid])).rows[0];
+  if (cached) info = parseJson(cached.data, null);
+  else if (TMDB_KEY) {
+    info = await fetchPerson(pid);
+    if (info) await pool.query(`insert into person_cache(id, data) values ($1, $2::text)
+      on conflict (id) do update set data = excluded.data, fetched_at = now()`, [pid, JSON.stringify(info)]);
+  }
+  if (!fp.length && !info) return res.status(404).json({ error: 'Не нашли такого человека' });
+  const films = (await pool.query(`
+    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb, f.tmdb_id,
+           avg(r.score)::float srv, count(r.score)::int n
+    from films f left join ratings r on r.film_id = f.imdb_id group by f.imdb_id`)).rows;
+  const byId = new Map(films.map(f => [f.id, f])), byTmdb = new Map(films.filter(f => f.tmdb_id).map(f => [f.tmdb_id, f]));
+  const onSite = new Map();
+  const addRole = (f, kind, text) => { if (!onSite.has(f.id)) onSite.set(f.id, { f, roles: new Map() }); onSite.get(f.id).roles.set(kind, text); };
+  for (const x of fp) { const f = byId.get(x.film_id); if (f) addRole(f, x.job, x.job === 'director' ? 'Режиссёр' : (x.character ? `Роль: ${x.character}` : 'Актёр')); }
+  const others = { acted: [], directed: [] };
+  for (const c of info?.acted || []) { const f = byTmdb.get(c.id); if (f) addRole(f, 'cast', c.character ? `Роль: ${c.character}` : 'Актёр'); else others.acted.push(c); }
+  for (const c of info?.directed || []) { const f = byTmdb.get(c.id); if (f) addRole(f, 'director', 'Режиссёр'); else others.directed.push(c); }
+  res.json({
+    id: pid, name: info?.name || fp[0]?.name || 'Без имени', photo: info?.photo || null, dept: info?.dept || null,
+    birthday: info?.birthday || null, place: info?.place || null, bio: info?.bio || '',
+    onSite: [...onSite.values()].sort((a, b) => (b.f.year || '').localeCompare(a.f.year || ''))
+      .map(({ f, roles }) => ({ id: f.id, title: f.title, ru: f.ru, year: f.year, poster: f.poster, imdb: f.imdb, srv: f.srv, n: f.n, roles: [...roles.values()] })),
+    others
+  });
+});
+
 app.post('/api/rate', needUser, async (req, res) => {
   const { filmId, score } = req.body || {};
   if (typeof filmId !== 'string') return res.status(400).json({ error: 'Неверный запрос' });
@@ -222,6 +317,8 @@ async function fetchOmdb(id) {
 // --- TMDB: русское название, описание, жанры, кадры, трейлер (нужен TMDB_API_KEY, он необязателен) ---
 const TMDB_KEY = (E.TMDB_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 let ruError = '';
+const okPath = x => (/^\/[\w-]+\.(jpg|jpeg|png)$/i.test(x || '') ? x : null);
+const uniq = a => a.filter((c, i) => a.findIndex(z => z.id === c.id) === i);
 async function fetchTmdb(id) {
   if (!TMDB_KEY) return null;
   try {
@@ -231,15 +328,21 @@ async function fetchTmdb(id) {
     if (!r.ok) { ruError = `TMDB ответил ${r.status}: ${d.status_message || ''}`; return null; }
     const m = d.movie_results?.[0];
     if (!m) return null;
-    const r2 = await fetch(`https://api.themoviedb.org/3/movie/${m.id}?${q}&language=ru-RU&append_to_response=videos,images&include_video_language=ru,en&include_image_language=en,null`);
+    const r2 = await fetch(`https://api.themoviedb.org/3/movie/${m.id}?${q}&language=ru-RU&append_to_response=videos,images,credits&include_video_language=ru,en&include_image_language=en,null`);
     const x = await r2.json();
-    if (!r2.ok) return { ru: m.title || null };
+    if (!r2.ok) return { ru: m.title || null, tmdbId: m.id };
     const vids = (x.videos?.results || []).filter(v => v.site === 'YouTube' && v.type === 'Trailer');
     const trailer = (vids.find(v => v.iso_639_1 === 'ru') || vids.find(v => v.official) || vids[0])?.key || null;
     const bk = x.images?.backdrops || [], clean = bk.filter(b => !b.iso_639_1);
     return {
       ru: m.title || null, overview: x.overview || m.overview || null,
       genres: (x.genres || []).map(g => g.name), runtime: x.runtime || null, trailer,
+      composer: (x.credits?.crew || []).filter(c => c.job === 'Original Music Composer').map(c => c.name).slice(0, 3).join(', ') || null,
+      tmdbId: m.id,
+      people: {
+        directors: uniq((x.credits?.crew || []).filter(c => c.job === 'Director')).slice(0, 3).map(c => ({ id: c.id, name: c.name, photo: okPath(c.profile_path) })),
+        cast: (x.credits?.cast || []).slice(0, 10).map(c => ({ id: c.id, name: c.name, character: c.character || null, photo: okPath(c.profile_path) }))
+      },
       backdrops: (clean.length >= 4 ? clean : bk).slice(0, 8).map(b => b.file_path)
     };
   } catch (e) { ruError = 'Не удалось связаться с TMDB: ' + e.message; return null; }
@@ -260,13 +363,27 @@ async function loadFilm(id) {
   if (f) { f.tm = await fetchTmdb(id); f.ru = f.tm?.ru || null; f.palette = await paletteFrom(f.poster); }
   return f;
 }
-const saveExtra = (id, tm, pal) => pool.query(`
+const saveExtraRow = (id, tm, pal) => pool.query(`
   update films set title_ru = coalesce($2::text, title_ru), overview = coalesce($3::text, overview),
     genres = coalesce($4::text, genres), runtime = coalesce($5::int, runtime),
-    backdrops = coalesce($6::text, backdrops), trailer = coalesce($7::text, trailer), palette = coalesce($8::text, palette)
+    backdrops = coalesce($6::text, backdrops), trailer = coalesce($7::text, trailer), palette = coalesce($8::text, palette), composer = coalesce($9::text, composer), tmdb_id = coalesce($10::int, tmdb_id)
   where imdb_id = $1`,
   [id, tm?.ru || null, tm?.overview || null, tm?.genres?.length ? JSON.stringify(tm.genres) : null, tm?.runtime || null,
-   tm?.backdrops?.length ? JSON.stringify(tm.backdrops) : null, tm?.trailer || null, pal ? JSON.stringify(pal) : null]);
+   tm?.backdrops?.length ? JSON.stringify(tm.backdrops) : null, tm?.trailer || null, pal ? JSON.stringify(pal) : null, tm?.composer || null, tm?.tmdbId || null]);
+async function saveExtra(id, tm, pal) {
+  await saveExtraRow(id, tm, pal);
+  if (tm?.people) await savePeople(id, tm.people);
+}
+// Режиссёры и главные актёры фильма (для ссылок на странице фильма и для страниц людей)
+async function savePeople(id, p) {
+  const rows = [...p.directors.map((x, i) => ({ ...x, job: 'director', character: null, ord: i })), ...p.cast.map((x, i) => ({ ...x, job: 'cast', ord: i }))];
+  await pool.query('delete from film_people where film_id = $1', [id]);
+  if (!rows.length) return;
+  await pool.query(`insert into film_people(film_id, person_id, name, job, character, ord, photo)
+    select $1::text, x.pid, x.n, x.j, x.c, x.o, x.ph
+    from unnest($2::int[], $3::text[], $4::text[], $5::text[], $6::int[], $7::text[]) as x(pid, n, j, c, o, ph)`,
+    [id, rows.map(r => r.id), rows.map(r => r.name), rows.map(r => r.job), rows.map(r => r.character || null), rows.map(r => r.ord), rows.map(r => r.photo || null)]);
+}
 const upsert = f => pool.query(`
   insert into films(imdb_id, title, title_ru, year, poster, imdb_rating) values ($1, $2, $6::text, $3, $4, $5)
   on conflict (imdb_id) do update set title = $2, title_ru = coalesce($6::text, films.title_ru), year = $3, poster = $4, imdb_rating = $5`,
@@ -319,7 +436,7 @@ app.delete('/api/films/:id', needAdmin, async (req, res) => {
 });
 
 const PUB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
-app.get('/film/:id', (req, res) => res.sendFile(path.join(PUB, 'index.html')));
+app.get(['/film/:id', '/person/:id'], (req, res) => res.sendFile(path.join(PUB, 'index.html')));
 app.use(express.static(PUB));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Ошибка сервера' }); });
 app.listen(E.PORT || 3000, () => console.log('Сайт запущен: ' + BASE));

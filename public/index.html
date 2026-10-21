@@ -198,6 +198,26 @@ button.fp-btn{border:0;font:inherit;font-weight:600;cursor:pointer}
 .lb-next{right:14px;top:50%;transform:translateY(-50%)}
 .lb-count{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:13px}
 @media (max-width:700px){.lb-prev{left:6px}.lb-next{right:6px}}
+.fp-composer{color:rgba(255,255,255,.75);margin:0 0 10px}
+.fp-tracks{margin:0 0 14px;padding-left:28px}
+.fp-tracks li{padding:7px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+.fp-tracks li::marker{color:var(--accent)}
+.fp-tracks li.unk .tr{color:rgba(255,255,255,.6);font-style:italic}
+.fp-tracks .row{display:flex;gap:10px;align-items:baseline}
+.fp-tracks .tr{flex:1;min-width:0;overflow-wrap:anywhere}
+.fp-dir{margin:0 0 14px;color:rgba(255,255,255,.85)}
+.fp-pl{color:var(--c4,#fff);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 60%,transparent)}
+.fp-pl:hover{border-bottom-color:var(--accent)}
+.fp-cast{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px}
+.fp-actor{flex:none;width:96px;text-align:center;text-decoration:none;color:inherit}
+.fp-actor .pic{display:flex;width:84px;height:84px;margin:0 auto 8px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,.12);align-items:center;justify-content:center;font-size:28px;font-weight:700;transition:transform .25s,box-shadow .25s}
+.fp-actor:hover .pic{transform:translateY(-3px);box-shadow:0 0 0 2px var(--accent)}
+.fp-actor b{display:block;font-size:13px;line-height:1.25}
+.fp-actor small{display:block;font-size:12px;color:rgba(255,255,255,.6);line-height:1.25}
+.fp-role{color:var(--c4,#fff)!important;opacity:.85}
+.fp-sim.big .fp-sf{width:150px}
+.fp-works{margin:0;padding:0;list-style:none;columns:2 280px;column-gap:28px}
+.fp-works li{padding:4px 0;color:rgba(255,255,255,.82);break-inside:avoid}
 </style>
 </head>
 <body>
@@ -466,7 +486,10 @@ function backTo() {
   document.title = SITE;
   setView(v);
 }
-function leaveFilm() { history.pushState(null, '', '/'); backTo(); }
+function leaveFilm() {
+  if (history.state && (history.state.film || history.state.person)) history.back();
+  else { history.pushState(null, '', '/'); backTo(); }
+}
 async function showFilm(id, push = true) {
   filmId = id;
   if (push) history.pushState({ film: id }, '', '/film/' + encodeURIComponent(id));
@@ -566,6 +589,57 @@ async function loadSimilar(id, color) {
   } catch (e) { row.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
 }
 
+// --- музыка из фильма: простой список ---
+function musicBlock(d) {
+  const ta = h('textarea', { rows: 3, maxlength: 6000, placeholder: 'По одному треку в строке: Исполнитель — Название' });
+  const err = h('div', { class: 'fp-err' });
+  const add = async body => { try { await api('/api/films/' + encodeURIComponent(d.id) + '/tracks', 'POST', body); await showFilm(d.id, false); } catch (e) { err.textContent = e.message; } };
+  const tracks = d.tracks || [];
+  const list = tracks.length
+    ? h('ol', { class: 'fp-tracks' }, ...tracks.map(t => h('li', { class: t.unknown ? 'unk' : '' }, h('div', { class: 'row' },
+        h('span', { class: 'tr' }, t.unknown ? `${t.artist || 'Композитор'} — ID` : (t.artist ? `${t.artist} — ${t.title}` : t.title)),
+        t.canDelete ? h('button', { class: 'fp-del', title: 'Удалить', onclick: async () => { await api('/api/tracks/' + t.id, 'DELETE'); await showFilm(d.id, false); } }, '×') : null))))
+    : h('p', { class: 'fp-empty' }, 'Список пока пуст.' + (me ? ' Добавьте первые треки!' : ''));
+  return h('div', {},
+    d.composer ? h('p', { class: 'fp-composer' }, 'Композитор: ' + d.composer) : null,
+    list,
+    me ? h('div', { class: 'fp-form' }, ta, h('div', { class: 'fp-formrow' }, err,
+        h('button', { class: 'fp-btn ghost', onclick: () => add({ unknown: true }) }, '+ Трек без названия (ID)'),
+        h('button', { class: 'fp-btn', onclick: () => { if (ta.value.trim()) add({ text: ta.value }); } }, 'Добавить')))
+       : h('p', { class: 'fp-empty' }, 'Войдите через Discord, чтобы добавлять треки.'));
+}
+
+// --- страница человека (режиссёр или актёр) ---
+const personLink = p => h('a', { class: 'fp-pl', href: '/person/' + p.id, onclick: e => { e.preventDefault(); showPerson(p.id); } }, p.name);
+async function showPerson(id, push = true) {
+  if (push) history.pushState({ person: id }, '', '/person/' + encodeURIComponent(id));
+  if (view !== 'film') { lastView = view; setView('film'); } else if (push) scrollTo(0, 0);
+  try { renderPerson(await api('/api/people/' + encodeURIComponent(id))); }
+  catch (e) { $('#filmBody').replaceChildren(h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')), h('p', {}, e.message)); }
+}
+function renderPerson(d) {
+  const st = $('#film').style, [c1, c2, c3, c4] = DEFPAL;
+  st.setProperty('--c1', c1); st.setProperty('--c2', c2); st.setProperty('--c3', c3); st.setProperty('--c4', c4);
+  document.title = d.name + ' — ' + SITE;
+  const dept = { Acting: 'Актёр', Directing: 'Режиссёр', Writing: 'Сценарист', Production: 'Продюсер' }[d.dept] || d.dept;
+  const meta = [dept, d.birthday ? 'род. ' + new Date(d.birthday).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '', d.place].filter(Boolean).join(' · ');
+  const other = d.others.acted.length || d.others.directed.length;
+  $('#filmBody').replaceChildren(
+    h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')),
+    h('div', { class: 'fp-hero' },
+      d.photo ? h('img', { class: 'fp-poster', src: 'https://image.tmdb.org/t/p/w342' + d.photo, alt: '' }) : h('div', { class: 'fp-poster' }),
+      h('div', {}, h('h1', {}, d.name), h('div', { class: 'fp-orig' }, meta), d.bio ? h('p', { class: 'fp-desc' }, d.bio + (d.bio.length >= 900 ? '…' : '')) : null)),
+    h('h2', {}, `Фильмы на сайте (${d.onSite.length})`),
+    d.onSite.length
+      ? h('div', { class: 'fp-sim big' }, ...d.onSite.map(f => h('a', { class: 'fp-sf', href: '/film/' + encodeURIComponent(f.id), title: tt(f), onclick: e => { e.preventDefault(); showFilm(f.id); } },
+          f.poster ? h('img', { src: f.poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'fp-sfn' }, tt(f)),
+          h('small', {}, tt(f) + (f.year ? ` (${f.year})` : '')), h('small', { class: 'fp-role' }, f.roles.join(' · ')), h('small', {}, `IMDb ${fmt(f.imdb)} · сервер ${fmt(f.srv)}`))))
+      : h('p', { class: 'fp-empty' }, 'Фильмов с этим человеком на сайте пока нет.'),
+    ...(d.others.directed.length ? [h('h2', {}, 'Другие работы режиссёра'), h('ul', { class: 'fp-works' }, ...d.others.directed.map(w => h('li', {}, `${w.year || '—'} · ${w.title}`)))] : []),
+    ...(d.others.acted.length ? [h('h2', {}, 'Другие роли'), h('ul', { class: 'fp-works' }, ...d.others.acted.map(w => h('li', {}, `${w.year || '—'} · ${w.title}` + (w.character ? ` — ${w.character}` : ''))))] : []),
+    other ? h('p', { class: 'fp-empty' }, 'Эти фильмы пока не добавлены на сайт.') : null);
+}
+
 function renderFilm(d) {
   const [c1, c2, c3, c4] = d.palette || DEFPAL, st = $('#film').style;
   st.setProperty('--c1', c1); st.setProperty('--c2', c2); st.setProperty('--c3', c3); st.setProperty('--c4', c4);
@@ -597,8 +671,14 @@ function renderFilm(d) {
           h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
         vote, hint, h('div', { class: 'fp-btns' }, ...btns))),
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
+    ...(((d.people?.directors || []).length || (d.people?.cast || []).length) ? [h('h2', {}, 'Режиссёр и актёры'),
+      ...((d.people.directors || []).length ? [h('p', { class: 'fp-dir' }, 'Режиссёр: ', ...d.people.directors.flatMap((p, i) => [i ? ', ' : null, personLink(p)]))] : []),
+      ...((d.people.cast || []).length ? [h('div', { class: 'fp-cast' }, ...d.people.cast.map(p => h('a', { class: 'fp-actor', href: '/person/' + p.id, title: p.name, onclick: e => { e.preventDefault(); showPerson(p.id); } },
+        p.photo ? h('img', { class: 'pic', src: 'https://image.tmdb.org/t/p/w185' + p.photo, alt: '', loading: 'lazy' }) : h('span', { class: 'pic' }, p.name.slice(0, 1)),
+        h('b', {}, p.name), h('small', {}, p.character || ''))))] : [])] : []),
     ...(shots.length ? [h('h2', {}, 'Кадры'), h('div', { class: 'fp-stills' }, ...shots.map((s, i) =>
       h('button', { class: 'fp-still', 'aria-label': 'Открыть кадр', onclick: () => openLb(shots, i) }, h('img', { src: s.thumb, alt: '', loading: 'lazy' }))))] : []),
+    h('h2', {}, 'Музыка из фильма'), musicBlock(d),
     ...(d.palette ? [h('h2', {}, 'Палитра постера (нажмите на цвет, чтобы найти фильмы такого оттенка)'),
       h('div', { class: 'fp-pal' }, ...d.palette.map(c => h('button', { class: 'fp-sw', title: 'Найти фильмы этого оттенка', onclick: () => loadSimilar(d.id, c) }, h('i', { style: 'background:' + c }), c))),
       h('h2', { id: 'simTitle' }, ''), h('div', { class: 'fp-sim', id: 'simRow' })] : []),
@@ -607,8 +687,8 @@ function renderFilm(d) {
   loadSimilar(d.id, null);
 }
 addEventListener('popstate', () => {
-  const m = location.pathname.match(/^\/film\/(tt\d+)/);
-  if (m) showFilm(m[1], false); else if (view === 'film') backTo();
+  const m = location.pathname.match(/^\/film\/(tt\d+)/), pm = location.pathname.match(/^\/person\/(\d+)/);
+  if (m) showFilm(m[1], false); else if (pm) showPerson(pm[1], false); else if (view === 'film') backTo();
 });
 
 (async () => {
@@ -624,7 +704,8 @@ addEventListener('popstate', () => {
   renderWho(); renderAdmin();
   setView(me ? 'home' : 'landing');
   const fm = location.pathname.match(/^\/film\/(tt\d+)/);
-  if (fm) showFilm(fm[1], false);
+  const pm = location.pathname.match(/^\/person\/(\d+)/);
+  if (fm) showFilm(fm[1], false); else if (pm) showPerson(pm[1], false);
   try { await load(); } catch (e) { say(e.message); }
 })();
 </script>
