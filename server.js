@@ -63,7 +63,10 @@ await pool.query(`
     created_at timestamptz default now(), primary key (media, tmdb_id));
   with moved as (delete from requests returning tmdb_id, title, year, poster, user_id, created_at)
     insert into req_items(media, tmdb_id, title, year, poster, user_id, created_at)
-    select 'movie', tmdb_id, title, year, poster, user_id, created_at from moved on conflict do nothing;`);
+    select 'movie', tmdb_id, title, year, poster, user_id, created_at from moved on conflict do nothing;
+  alter table films add column if not exists clip_mode text default 'off';
+  alter table films add column if not exists clip_video text;
+  alter table films add column if not exists clip_cuts text;`);
 
 // Данные участника (имя и аватар из Discord) нужны, чтобы показывать, кто оценил фильм и кто написал комментарий
 const saveUser = (u, avatar) => pool.query(`
@@ -154,7 +157,7 @@ const parseJson = (t, d) => { try { return t ? JSON.parse(t) : d; } catch { retu
 app.get('/api/films/:id', async (req, res) => {
   const { rows } = await pool.query(`
     select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb,
-           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer, f.kind, f.media, f.seasons, f.kind_manual,
+           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer, f.kind, f.media, f.seasons, f.kind_manual, f.clip_mode, f.clip_video, f.clip_cuts,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $2 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
@@ -169,8 +172,12 @@ app.get('/api/films/:id', async (req, res) => {
   const commentsCount = (await pool.query('select count(*)::int n from comments where film_id = $1', [req.params.id])).rows[0].n;
   const ppl = (await pool.query('select person_id id, name, job, character, photo from film_people where film_id = $1 order by job, ord', [req.params.id])).rows;
   const people = { directors: ppl.filter(x => x.job === 'director'), cast: ppl.filter(x => x.job === 'cast') };
+  // фоновый клип страницы: свой ролик с отрезками или трейлер из TMDB с автоматической нарезкой
+  const cm = f.clip_mode || 'off', okId = x => /^[\w-]{11}$/.test(x || '');
+  const clip = cm === 'custom' && okId(f.clip_video) ? { mode: cm, video: f.clip_video, cuts: parseJson(f.clip_cuts, []) }
+    : cm === 'auto' && okId(f.trailer) ? { mode: cm, video: f.trailer, cuts: [] } : { mode: 'off' };
   res.json({
-    raters, commentsCount, people, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
+    raters, commentsCount, people, clip, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
     palette: Array.isArray(pal) && pal.length === 4 && pal.every(c => /^#[0-9a-f]{6}$/i.test(c)) ? pal : null,
     trailer: /^[\w-]{6,20}$/.test(f.trailer || '') ? f.trailer : null
   });
@@ -320,15 +327,26 @@ app.get('/api/tmdb/search', needUser, async (req, res) => {
 });
 app.get('/api/tmdb/discover', needAdmin, async (req, res) => {
   if (!TMDB_KEY) return res.status(400).json({ error: 'На сервере не задан ключ TMDB_API_KEY' });
-  const media = req.query.media === 'tv' ? 'tv' : 'movie', dateKey = media === 'tv' ? 'first_air_date' : 'primary_release_date';
+  // Типы для импорта: фильмы, сериалы, аниме (сериалы и полнометражные), мультсериалы, полнометражные мультфильмы
+  const PRESETS = { movie: { media: 'movie', not: '16' }, series: { media: 'tv', not: '16' },
+    anime_series: { media: 'tv', anim: 'ja' }, anime_movie: { media: 'movie', anim: 'ja' },
+    cartoon_series: { media: 'tv', anim: 'other' }, cartoon_movie: { media: 'movie', anim: 'other' } };
+  const pr = PRESETS[req.query.preset] || PRESETS[req.query.media === 'tv' ? 'series' : 'movie'];
+  const media = pr.media, dateKey = media === 'tv' ? 'first_air_date' : 'primary_release_date';
   const p = { language: 'ru-RU', include_adult: 'false', page: String(Math.min(50, Math.max(1, +req.query.page || 1))),
     sort_by: req.query.sort === 'popular' ? 'popularity.desc' : 'vote_average.desc',
     'vote_count.gte': String(Math.max(0, Math.min(1000000, +req.query.votes || 0))) };
-  if (/^\d+$/.test(req.query.genre || '')) p.with_genres = req.query.genre;
+  const gs = pr.anim ? ['16'] : [];
+  if (/^\d+$/.test(req.query.genre || '')) gs.push(req.query.genre);
+  if (gs.length) p.with_genres = gs.join(',');
+  if (pr.not) p.without_genres = pr.not;
+  if (pr.anim === 'ja') p.with_original_language = 'ja';
   if (/^\d{4}$/.test(req.query.from || '')) p[dateKey + '.gte'] = req.query.from + '-01-01';
   if (/^\d{4}$/.test(req.query.to || '')) p[dateKey + '.lte'] = req.query.to + '-12-31';
   const [d, site] = await Promise.all([tmdbGet(`/discover/${media}`, p), siteMap()]);
-  res.json({ page: d.page, pages: Math.min(d.total_pages || 1, 50), results: (d.results || []).map(m => mapItem(m, media, site)) });
+  let rs = d.results || [];
+  if (pr.anim === 'other') rs = rs.filter(m => m.original_language !== 'ja');   // мультфильмы и мультсериалы без японской анимации
+  res.json({ page: d.page, pages: Math.min(d.total_pages || 1, 50), results: rs.map(m => mapItem(m, media, site)) });
 });
 app.post('/api/films/add-tmdb', needAdmin, async (req, res) => {
   const media = req.body?.media === 'tv' ? 'tv' : 'movie';
@@ -376,6 +394,24 @@ app.post('/api/films/:id/kind', needAdmin, async (req, res) => {
   if (kind === 'auto') { await pool.query('update films set kind_manual = false where imdb_id = $1', [req.params.id]); return res.json({ ok: true }); }
   if (!KINDS.includes(kind)) return res.status(400).json({ error: 'Неизвестный раздел' });
   await pool.query('update films set kind = $2::text, kind_manual = true where imdb_id = $1', [req.params.id, kind]);
+  res.json({ ok: true });
+});
+
+// --- фоновый клип страницы фильма (настраивает администратор) ---
+app.post('/api/films/:id/clip', needAdmin, async (req, res) => {
+  const mode = ['off', 'auto', 'custom'].includes(req.body?.mode) ? req.body.mode : null;
+  if (!mode) return res.status(400).json({ error: 'Неизвестный режим' });
+  let video = null, cuts = null;
+  if (mode === 'custom') {
+    const raw = String(req.body?.video || '').trim();
+    const m = raw.match(/^[\w-]{11}$/) || raw.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);
+    video = m ? (m[1] || m[0]) : null;
+    cuts = (Array.isArray(req.body?.cuts) ? req.body.cuts : []).slice(0, 12).map(x => [Number(x?.[0]), Number(x?.[1])])
+      .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && a >= 0 && b > a && b - a <= 20 && b < 36000);
+    if (!video || !cuts.length) return res.status(400).json({ error: 'Нужны ссылка на ролик YouTube и хотя бы один отрезок (до 20 секунд)' });
+  }
+  await pool.query('update films set clip_mode = $2::text, clip_video = $3::text, clip_cuts = $4::text where imdb_id = $1',
+    [req.params.id, mode, video, cuts ? JSON.stringify(cuts) : null]);
   res.json({ ok: true });
 });
 

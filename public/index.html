@@ -269,6 +269,18 @@ body.list .wrap{padding-top:84px}
 .fp-kind{text-decoration:none;background:var(--accent);color:#111!important;font-weight:600;border-color:var(--accent)!important}
 .fp-kind-edit{margin-top:14px}
 @media (max-width:700px){#topbar #topName{display:none}}
+#filmbg2{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:calc(var(--p,0) * .9);background:radial-gradient(1100px 760px at 8% 12%,var(--c2),transparent 72%),radial-gradient(1000px 700px at 92% 22%,color-mix(in srgb,var(--c3) 42%,transparent),transparent 70%)}
+#clipband{position:absolute;left:0;right:0;top:0;height:100vh;z-index:1;pointer-events:none;overflow:hidden;mix-blend-mode:screen;opacity:calc(.9 * (1 - var(--p,0)));-webkit-mask-image:linear-gradient(#000 52%,transparent);mask-image:linear-gradient(#000 52%,transparent)}
+#clipfade{position:absolute;inset:0;opacity:0;transition:opacity 1.4s ease}
+#clipfade.on{opacity:1}
+#clipwrap{position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(56.25vw,100vh);transform:translate(-50%,-50%)}
+#clipwrap iframe{display:block;width:100%;height:100%;border:0}
+#clipshade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.4),transparent 30%,transparent 52%,var(--c1))}
+#clipflash{position:absolute;inset:0;background:#fff;opacity:0}
+#clipflash.go{animation:cflash .4s ease-out}
+@keyframes cflash{from{opacity:.35}to{opacity:0}}
+.fp-clip-edit{margin-top:10px;display:flex;flex-direction:column;gap:8px;max-width:520px}
+.fp-clip-edit input{width:100%}
 </style>
 </head>
 <body>
@@ -284,7 +296,7 @@ body.list .wrap{padding-top:84px}
 </div></div>
 <div id="topbar"><button class="btn ghost" id="toRating" style="display:none">Заявки</button><span id="topName"></span><a href="/auth/logout">Выйти</a></div>
 <div id="modal"><div class="modal-in"><button class="x" id="mclose" aria-label="Закрыть">×</button><div id="modalBody"></div></div></div>
-<div id="film"><div id="filmbg"></div><div class="fp-wrap" id="filmBody"></div></div>
+<div id="film"><div id="filmbg"></div><div id="filmbg2"></div><div id="clipband"><div id="clipfade"><div id="clipwrap"></div><div id="clipshade"></div><div id="clipflash"></div></div></div><div class="fp-wrap" id="filmBody"></div></div>
 <div id="lb"><button class="lb-x" id="lbX" aria-label="Закрыть">×</button><button class="lb-nav lb-prev" id="lbPrev" aria-label="Назад">‹</button><div id="lbStage"></div><button class="lb-nav lb-next" id="lbNext" aria-label="Вперёд">›</button><div class="lb-count" id="lbCount"></div></div>
 <nav id="island"></nav>
 <div id="news"><div class="news-in"><h2 id="newsTitle"></h2><ul id="newsList"></ul><button class="btn" id="newsOk">Понятно</button></div></div>
@@ -494,6 +506,7 @@ const norm = t => String(t || '').toLowerCase().replace(/ё/g, 'е');
 let view = 'landing', lastView = 'home';
 function setView(v) {
   view = v;
+  if (v !== 'film') stopClip();
   document.body.classList.remove('landing', 'home', 'list', 'film');
   document.body.classList.add(v);
   scrollTo(0, 0);
@@ -641,6 +654,112 @@ async function commentsPanel(d, panel) {
   } catch (e) { list.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
 }
 
+// --- фоновый клип: обрывки ролика без звука вверху страницы, при прокрутке они растворяются в цвета палитры ---
+let clipPlayer = null, clipTimer = 0, clipToken = 0, clipPaused = false, clipKey = '', ytLoading = null;
+function loadYT() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (ytLoading) return ytLoading;
+  ytLoading = new Promise((res, rej) => {
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); res(); };
+    const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; sc.onerror = () => { ytLoading = null; rej(); };
+    document.head.append(sc);
+  });
+  return ytLoading;
+}
+function stopClip() {
+  clipToken++; clearInterval(clipTimer); clipPaused = false; clipKey = '';
+  const fade = $('#clipfade'); if (fade) fade.classList.remove('on');
+  if (clipPlayer) { try { clipPlayer.destroy(); } catch {} clipPlayer = null; }
+  const w = $('#clipwrap'); if (w) w.replaceChildren();
+}
+const wantClip = () => !matchMedia('(prefers-reduced-motion: reduce)').matches && !matchMedia('(pointer: coarse)').matches && !(navigator.connection && navigator.connection.saveData);
+async function setupClip(d) {
+  const cl = d.clip, key = d.id + '|' + JSON.stringify(cl || {});
+  if (clipPlayer && key === clipKey) return;
+  stopClip();
+  if (!cl || cl.mode === 'off' || !cl.video || !wantClip()) return;
+  clipKey = key;
+  const token = clipToken;
+  try { await loadYT(); } catch { return; }
+  if (token !== clipToken || view !== 'film') return;
+  $('#clipwrap').replaceChildren(h('div', { id: 'ytp' }));
+  let cuts = (cl.cuts || []).filter(x => x && x[1] > x[0]), i = 0, shown = false, built = cuts.length > 0;
+  const flash = () => { const f = $('#clipflash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); };
+  const jump = n => { i = n % cuts.length; flash(); try { clipPlayer.seekTo(cuts[i][0], true); clipPlayer.playVideo(); } catch {} };
+  clipPlayer = new YT.Player('ytp', {
+    videoId: cl.video,
+    playerVars: { autoplay: 1, controls: 0, mute: 1, playsinline: 1, rel: 0, modestbranding: 1, disablekb: 1, fs: 0, iv_load_policy: 3, origin: location.origin, start: Math.floor(cuts.length ? cuts[0][0] : 0) },
+    events: {
+      onReady: ev => { try { ev.target.mute(); if (built) jump(0); else ev.target.playVideo(); } catch {} },
+      onStateChange: ev => {
+        if (token !== clipToken) return;
+        if (ev.data === YT.PlayerState.PLAYING) {
+          if (!built) {   // автоматическая нарезка трейлера: пять отрезков по 4 секунды вдоль ролика
+            built = true;
+            const dur = ev.target.getDuration() || 0;
+            cuts = dur > 40 ? [.12, .3, .48, .66, .82].map(f => [Math.floor(f * dur), Math.floor(f * dur) + 4]) : [[0, Math.max(4, Math.min(dur, 12))]];
+            jump(0); return;
+          }
+          if (!shown) { shown = true; $('#clipfade').classList.add('on'); }
+        }
+        if (ev.data === YT.PlayerState.ENDED && built) jump(i + 1);
+      },
+      onError: () => { if (token === clipToken) stopClip(); }
+    }
+  });
+  clipTimer = setInterval(() => {
+    if (token !== clipToken || !built) return;
+    try { if (clipPlayer && clipPlayer.getCurrentTime() >= cuts[i][1]) jump(i + 1); } catch {}
+  }, 120);
+}
+function onFilmScroll() {
+  if (view !== 'film') return;
+  const p = Math.min(1, scrollY / (innerHeight * .8));
+  $('#film').style.setProperty('--p', p.toFixed(3));
+  if (!clipPlayer) return;
+  try {
+    if (p >= 1 && !clipPaused) { clipPlayer.pauseVideo(); clipPaused = true; }
+    else if (p < .95 && clipPaused) { clipPlayer.playVideo(); clipPaused = false; }
+  } catch {}
+}
+addEventListener('scroll', onFilmScroll, { passive: true });
+function parseTime(x) {
+  x = (x || '').trim();
+  if (/^\d+(\.\d+)?$/.test(x)) return +x;
+  const m = x.match(/^(\d+):(\d{1,2})$/);
+  return m ? +m[1] * 60 + +m[2] : NaN;
+}
+function parseCuts(text) {
+  const out = [];
+  for (const part of text.split(/[,;\n]+/).map(t => t.trim()).filter(Boolean)) {
+    const [a, b] = part.split(/\s*[-–—]\s*/), s0 = parseTime(a), e0 = parseTime(b);
+    if (!(s0 >= 0 && e0 > s0)) return null;
+    out.push([s0, e0]);
+  }
+  return out;
+}
+function clipEditor(d) {
+  const cl = d.clip || { mode: 'off' };
+  const mode = h('select', {}, h('option', { value: 'off' }, 'Фоновый клип: выключен'), h('option', { value: 'auto' }, 'Фоновый клип: из трейлера, автоматически'), h('option', { value: 'custom' }, 'Фоновый клип: свой ролик и отрезки'));
+  mode.value = cl.mode;
+  const video = h('input', { placeholder: 'Ссылка на ролик YouTube', value: cl.mode === 'custom' && cl.video ? 'https://www.youtube.com/watch?v=' + cl.video : '' });
+  const cuts = h('input', { placeholder: 'Отрезки в секундах: 12-16, 40-44, 1:10-1:14', value: cl.mode === 'custom' ? (cl.cuts || []).map(([a, b]) => `${a}-${b}`).join(', ') : '' });
+  const msg = h('span', { class: 'fp-hint' }, d.trailer || cl.mode === 'custom' ? '' : 'У этого фильма нет трейлера в TMDB: для автоматического режима нужен свой ролик.');
+  const sync = () => { video.style.display = cuts.style.display = mode.value === 'custom' ? '' : 'none'; };
+  mode.onchange = sync; sync();
+  const save = h('button', { class: 'btn ghost', onclick: async () => {
+    const body = { mode: mode.value };
+    if (mode.value === 'custom') {
+      const cs = parseCuts(cuts.value);
+      if (!cs || !cs.length) { msg.textContent = 'Проверьте отрезки, например: 12-16, 40-44'; return; }
+      body.video = video.value; body.cuts = cs;
+    }
+    try { await api('/api/films/' + encodeURIComponent(d.id) + '/clip', 'POST', body); await showFilm(d.id, false); } catch (e) { msg.textContent = e.message; }
+  } }, 'Сохранить клип');
+  return h('div', { class: 'fp-clip-edit' }, mode, video, cuts, save, msg);
+}
+
 // --- остров с разделами ---
 const SECTIONS = [
   { key: 'movie', title: 'Фильмы', path: '/movies' }, { key: 'series', title: 'Сериалы', path: '/series' },
@@ -750,24 +869,27 @@ async function loadRequests() {
 const GENRES = [[28, 'Боевик'], [12, 'Приключения'], [16, 'Мультфильм'], [35, 'Комедия'], [80, 'Криминал'], [99, 'Документальный'], [18, 'Драма'], [10751, 'Семейный'], [14, 'Фэнтези'], [36, 'История'], [27, 'Ужасы'], [10402, 'Музыка'], [9648, 'Детектив'], [10749, 'Мелодрама'], [878, 'Фантастика'], [53, 'Триллер'], [10752, 'Военный'], [37, 'Вестерн']];
 const GENRES_TV = [[10759, 'Боевик и приключения'], [16, 'Мультсериал'], [35, 'Комедия'], [80, 'Криминал'], [99, 'Документальный'], [18, 'Драма'], [10751, 'Семейный'], [10762, 'Детский'], [9648, 'Детектив'], [10763, 'Новости'], [10764, 'Реалити'], [10765, 'Фантастика и фэнтези'], [10766, 'Мыльная опера'], [10767, 'Ток-шоу'], [10768, 'Война и политика'], [37, 'Вестерн']];
 function importPanel() {
-  const media = h('select', {}, h('option', { value: 'movie' }, 'Фильмы'), h('option', { value: 'tv' }, 'Сериалы и шоу'));
+  const TYPES = [['movie', 'Фильмы', 'movie'], ['series', 'Сериалы и шоу', 'tv'], ['anime_series', 'Аниме (сериалы)', 'tv'], ['anime_movie', 'Полнометражные аниме', 'movie'],
+    ['cartoon_series', 'Мультсериалы', 'tv'], ['cartoon_movie', 'Полнометражные мультфильмы', 'movie']];
+  const media = h('select', {}, ...TYPES.map(([v, t]) => h('option', { value: v }, t)));
+  const mediaOf = () => TYPES.find(t => t[0] === media.value)[2];
   const sort = h('select', {}, h('option', { value: 'rating' }, 'Лучшие по рейтингу'), h('option', { value: 'popular' }, 'Популярные'));
   const genre = h('select', {});
-  const fillGenres = () => genre.replaceChildren(h('option', { value: '' }, 'Любой жанр'), ...(media.value === 'tv' ? GENRES_TV : GENRES).map(([id, n]) => h('option', { value: id }, n)));
+  const fillGenres = () => genre.replaceChildren(h('option', { value: '' }, 'Любой жанр'), ...(mediaOf() === 'tv' ? GENRES_TV : GENRES).map(([id, n]) => h('option', { value: id }, n)));
   fillGenres(); media.onchange = fillGenres;
   const from = h('input', { type: 'number', placeholder: 'Год от', min: 1900, max: 2100 }), to = h('input', { type: 'number', placeholder: 'Год до', min: 1900, max: 2100 });
   const votes = h('input', { type: 'number', placeholder: 'Мин. голосов', value: 5000, min: 0 });
   const grid = h('div', { class: 'imp-grid' }), foot = h('div', { class: 'imp-foot' });
-  let page = 0, pages = 1, cur = 'movie'; const picked = new Set();
+  let page = 0, pages = 1, cur = 'movie', curPreset = 'movie'; const picked = new Set();
   function drawFoot() {
     foot.replaceChildren(...(page < pages ? [h('button', { class: 'btn ghost', onclick: () => loadPage(false) }, 'Показать ещё')] : []),
       h('button', { class: 'btn', disabled: !picked.size, onclick: addPicked }, `Добавить выбранные (${picked.size})`));
   }
   async function loadPage(reset) {
-    if (reset) { page = 0; grid.replaceChildren(); picked.clear(); cur = media.value; }
+    if (reset) { page = 0; grid.replaceChildren(); picked.clear(); cur = mediaOf(); curPreset = media.value; }
     foot.textContent = 'Загружаю…';
     try {
-      const q = new URLSearchParams({ media: cur, sort: sort.value, genre: genre.value, from: from.value, to: to.value, votes: votes.value || 0, page: page + 1 });
+      const q = new URLSearchParams({ media: cur, preset: curPreset, sort: sort.value, genre: genre.value, from: from.value, to: to.value, votes: votes.value || 0, page: page + 1 });
       const d = await api('/api/tmdb/discover?' + q);
       page = d.page; pages = d.pages;
       grid.append(...d.results.map(m => {
@@ -816,6 +938,7 @@ async function showPerson(id, push = true) {
   catch (e) { $('#filmBody').replaceChildren(h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')), h('p', {}, e.message)); }
 }
 function renderPerson(d) {
+  stopClip(); $('#film').style.setProperty('--p', 0);
   const st = $('#film').style, [c1, c2, c3, c4] = DEFPAL;
   st.setProperty('--c1', c1); st.setProperty('--c2', c2); st.setProperty('--c3', c3); st.setProperty('--c4', c4);
   document.title = d.name + ' — ' + SITE;
@@ -880,7 +1003,7 @@ function renderFilm(d) {
         h('div', { class: 'fp-scores' },
           h('a', { class: 'fp-s fp-imdb', href: 'https://www.imdb.com/title/' + encodeURIComponent(d.id) + '/', target: '_blank', rel: 'noopener', title: 'Открыть на IMDb' }, h('b', {}, fmt(d.imdb)), h('small', {}, 'IMDb ↗')),
           h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
-        vote, hint, h('div', { class: 'fp-btns' }, ...btns), me && me.admin ? kindEditor(d) : null)),
+        vote, hint, h('div', { class: 'fp-btns' }, ...btns), me && me.admin ? kindEditor(d) : null, me && me.admin ? clipEditor(d) : null)),
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
     ...(((d.people?.directors || []).length || (d.people?.cast || []).length) ? [h('h2', {}, d.media === 'tv' ? 'Создатели и актёры' : 'Режиссёр и актёры'),
       ...((d.people.directors || []).length ? [h('p', { class: 'fp-dir' }, d.media === 'tv' ? 'Создатель: ' : 'Режиссёр: ', ...d.people.directors.flatMap((p, i) => [i ? ', ' : null, personLink(p)]))] : []),
@@ -895,6 +1018,7 @@ function renderFilm(d) {
     h('div', { class: 'fp-tabs', id: 'fpTabs' }));
   renderTabs(d);
   loadSimilar(d.id, null);
+  setupClip(d);
 }
 addEventListener('popstate', () => {
   const m = location.pathname.match(/^\/film\/(tt\d+)/), pm = location.pathname.match(/^\/person\/(\d+)/);
