@@ -281,6 +281,9 @@ body.list .wrap{padding-top:84px}
 @keyframes cflash{from{opacity:.35}to{opacity:0}}
 .fp-clip-edit{margin-top:10px;display:flex;flex-direction:column;gap:8px;max-width:520px}
 .fp-clip-edit input{width:100%}
+.lb-links{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:center}
+.lb-alt{font:inherit;font-size:13px;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 14px;cursor:pointer}
+.lb-down,.lb-wait{display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:rgba(255,255,255,.8)}
 </style>
 </head>
 <body>
@@ -339,7 +342,7 @@ const h = (t, a = {}, ...k) => {
   for (const [n, v] of Object.entries(a)) {
     if (n === 'class') e.className = v;
     else if (n.startsWith('on')) e.addEventListener(n.slice(2), v);
-    else if (v != null && v !== false) e.setAttribute(n, v);
+    else if (v != null && v !== false) e.setAttribute(n, n === 'src' && typeof v === 'string' ? v.replace('https://image.tmdb.org/t/p/', '/img/') : v);
   }
   e.append(...k.filter(x => x != null));
   return e;
@@ -580,19 +583,46 @@ async function showFilm(id, push = true) {
 const lb = { items: [], i: 0 };
 function openLb(items, i = 0) { lb.items = items; lb.i = i; $('#lb').classList.add('on'); document.body.style.overflow = 'hidden'; drawLb(); }
 function closeLb() { $('#lb').classList.remove('on'); document.body.style.overflow = ''; setTimeout(() => { if (!$('#lb').classList.contains('on')) $('#lbStage').replaceChildren(); }, 300); }
+let lbTok = 0, ytState = null;
+// Проверка, открывается ли YouTube из сети посетителя (в некоторых странах нет)
+function ytOk() {
+  if (!ytState) ytState = (async () => {
+    try {
+      const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 4000);
+      await fetch('https://www.youtube.com/generate_204', { mode: 'no-cors', cache: 'no-store', signal: ac.signal });
+      clearTimeout(tm); return true;
+    } catch { return false; }
+  })();
+  return ytState;
+}
+function showVideo(it) {
+  const tok = ++lbTok;
+  const yt = id => 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?autoplay=1&rel=0';
+  const frame = src => h('div', { class: 'lb-video' }, h('iframe', { src, allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: 'true', title: 'Трейлер' }));
+  const links = alt => h('div', { class: 'lb-links' },
+    it.video ? h('a', { class: 'lb-yt', href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.video), target: '_blank', rel: 'noopener' }, 'Не воспроизводится? Открыть на YouTube') : null,
+    it.alt && it.video ? h('button', { class: 'lb-alt', onclick: () => put(!alt) }, alt ? 'Вернуться к основному плееру' : 'Не открывается? Запасной плеер (RuTube / VK)') : null);
+  const put = alt => { if (tok === lbTok) $('#lbStage').replaceChildren(frame(alt ? it.alt : yt(it.video)), links(alt)); };
+  if (!it.video) { put(true); return; }
+  $('#lbStage').replaceChildren(h('div', { class: 'lb-video lb-wait' }, 'Загружаю…'));
+  ytOk().then(ok => {
+    if (tok !== lbTok || !$('#lb').classList.contains('on')) return;
+    if (ok) put(false);
+    else if (it.alt) put(true);
+    else $('#lbStage').replaceChildren(h('div', { class: 'lb-video lb-down' }, 'Похоже, YouTube не открывается из вашей сети. Попробуйте VPN или откройте ролик по ссылке ниже.'), links(false));
+  });
+}
 function drawLb() {
   const it = lb.items[lb.i], multi = lb.items.length > 1;
   $('#lbPrev').style.display = $('#lbNext').style.display = multi ? '' : 'none';
   $('#lbCount').textContent = multi ? `${lb.i + 1} / ${lb.items.length}` : '';
-  if (it.video) {
-    $('#lbStage').replaceChildren(
-      h('div', { class: 'lb-video' }, h('iframe', { src: 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(it.video) + '?autoplay=1&rel=0', allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: 'true', title: 'Трейлер' })),
-      h('a', { class: 'lb-yt', href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.video), target: '_blank', rel: 'noopener' }, 'Не воспроизводится? Открыть на YouTube'));
+  if (it.video || it.alt) {
+    showVideo(it);
   } else {
     const img = h('img', { class: 'lb-img', src: it.src, alt: '' });
     img.addEventListener('load', () => img.classList.add('ready'));
     $('#lbStage').replaceChildren(img);
-    const nx = lb.items[(lb.i + 1) % lb.items.length]; if (nx && nx.src) new Image().src = nx.src;
+    const nx = lb.items[(lb.i + 1) % lb.items.length]; if (nx && nx.src) new Image().src = nx.src.replace('https://image.tmdb.org/t/p/', '/img/');
   }
 }
 const lbStep = d => { if (lb.items.length > 1) { lb.i = (lb.i + d + lb.items.length) % lb.items.length; drawLb(); } };
@@ -681,12 +711,13 @@ async function setupClip(d) {
   if (!cl || cl.mode === 'off' || !cl.video || !wantClip()) return;
   clipKey = key;
   const token = clipToken;
-  try { await loadYT(); } catch { return; }
+  if (!(await ytOk())) return;
+  try { await Promise.race([loadYT(), new Promise((_, rej) => setTimeout(rej, 8000))]); } catch { return; }
   if (token !== clipToken || view !== 'film') return;
   $('#clipwrap').replaceChildren(h('div', { id: 'ytp' }));
   let cuts = (cl.cuts || []).filter(x => x && x[1] > x[0]), i = 0, shown = false, built = cuts.length > 0;
   const flash = () => { const f = $('#clipflash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); };
-  const jump = n => { i = n % cuts.length; flash(); try { clipPlayer.seekTo(cuts[i][0], true); clipPlayer.playVideo(); } catch {} };
+  const jump = n => { i = n % cuts.length; flash(); try { clipPlayer.seekTo(cuts[i][0], true); if (clipPlayer.getPlayerState() !== 1) clipPlayer.playVideo(); } catch {} };
   clipPlayer = new YT.Player('ytp', {
     videoId: cl.video,
     playerVars: { autoplay: 1, controls: 0, mute: 1, playsinline: 1, rel: 0, modestbranding: 1, disablekb: 1, fs: 0, iv_load_policy: 3, origin: location.origin, start: Math.floor(cuts.length ? cuts[0][0] : 0) },
@@ -738,6 +769,14 @@ function parseCuts(text) {
     out.push([s0, e0]);
   }
   return out;
+}
+function altEditor(d) {
+  const inp = h('input', { placeholder: 'Запасной трейлер: ссылка на RuTube или код для вставки VK Видео', value: d.trailerAlt || '' });
+  const msg = h('span', { class: 'fp-hint' }, 'Для тех, у кого не открывается YouTube. Пустое поле убирает запасной трейлер.');
+  const save = h('button', { class: 'btn ghost', onclick: async () => {
+    try { await api('/api/films/' + encodeURIComponent(d.id) + '/trailer-alt', 'POST', { url: inp.value }); await showFilm(d.id, false); } catch (e) { msg.textContent = e.message; }
+  } }, 'Сохранить запасной трейлер');
+  return h('div', { class: 'fp-clip-edit' }, inp, save, msg);
 }
 function clipEditor(d) {
   const cl = d.clip || { mode: 'off' };
@@ -984,7 +1023,7 @@ function renderFilm(d) {
     }
   }, String(k + 1))));
   const btns = [];
-  if (d.trailer) btns.push(h('button', { class: 'fp-btn', onclick: () => openLb([{ video: d.trailer }]) }, '▶ Трейлер'));
+  if (d.trailer || d.trailerAlt) btns.push(h('button', { class: 'fp-btn', onclick: () => openLb([{ video: d.trailer, alt: d.trailerAlt }]) }, '▶ Трейлер'));
   btns.push(h('a', { class: 'fp-btn ghost', href: 'https://www.imdb.com/title/' + encodeURIComponent(d.id) + '/', target: '_blank', rel: 'noopener' }, 'Страница на IMDb'));
   if (!me) btns.push(h('a', { class: 'fp-btn', href: '/auth/login' }, 'Войти, чтобы оценить'));
   const tv = d.media === 'tv', kk = d.kind || 'movie';
@@ -1003,7 +1042,7 @@ function renderFilm(d) {
         h('div', { class: 'fp-scores' },
           h('a', { class: 'fp-s fp-imdb', href: 'https://www.imdb.com/title/' + encodeURIComponent(d.id) + '/', target: '_blank', rel: 'noopener', title: 'Открыть на IMDb' }, h('b', {}, fmt(d.imdb)), h('small', {}, 'IMDb ↗')),
           h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
-        vote, hint, h('div', { class: 'fp-btns' }, ...btns), me && me.admin ? kindEditor(d) : null, me && me.admin ? clipEditor(d) : null)),
+        vote, hint, h('div', { class: 'fp-btns' }, ...btns), me && me.admin ? kindEditor(d) : null, me && me.admin ? clipEditor(d) : null, me && me.admin ? altEditor(d) : null)),
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
     ...(((d.people?.directors || []).length || (d.people?.cast || []).length) ? [h('h2', {}, d.media === 'tv' ? 'Создатели и актёры' : 'Режиссёр и актёры'),
       ...((d.people.directors || []).length ? [h('p', { class: 'fp-dir' }, d.media === 'tv' ? 'Создатель: ' : 'Режиссёр: ', ...d.people.directors.flatMap((p, i) => [i ? ', ' : null, personLink(p)]))] : []),

@@ -66,7 +66,8 @@ await pool.query(`
     select 'movie', tmdb_id, title, year, poster, user_id, created_at from moved on conflict do nothing;
   alter table films add column if not exists clip_mode text default 'off';
   alter table films add column if not exists clip_video text;
-  alter table films add column if not exists clip_cuts text;`);
+  alter table films add column if not exists clip_cuts text;
+  alter table films add column if not exists trailer_alt text;`);
 
 // Данные участника (имя и аватар из Discord) нужны, чтобы показывать, кто оценил фильм и кто написал комментарий
 const saveUser = (u, avatar) => pool.query(`
@@ -157,7 +158,7 @@ const parseJson = (t, d) => { try { return t ? JSON.parse(t) : d; } catch { retu
 app.get('/api/films/:id', async (req, res) => {
   const { rows } = await pool.query(`
     select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb,
-           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer, f.kind, f.media, f.seasons, f.kind_manual, f.clip_mode, f.clip_video, f.clip_cuts,
+           f.overview, f.genres, f.runtime, f.palette, f.backdrops, f.trailer, f.composer, f.kind, f.media, f.seasons, f.kind_manual, f.clip_mode, f.clip_video, f.clip_cuts, f.trailer_alt,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $2 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
@@ -176,8 +177,9 @@ app.get('/api/films/:id', async (req, res) => {
   const cm = f.clip_mode || 'off', okId = x => /^[\w-]{11}$/.test(x || '');
   const clip = cm === 'custom' && okId(f.clip_video) ? { mode: cm, video: f.clip_video, cuts: parseJson(f.clip_cuts, []) }
     : cm === 'auto' && okId(f.trailer) ? { mode: cm, video: f.trailer, cuts: [] } : { mode: 'off' };
+  const trailerAlt = /^https:\/\/(rutube\.ru|vk\.com|vkvideo\.ru|vk\.ru)\//.test(f.trailer_alt || '') ? f.trailer_alt : null;
   res.json({
-    raters, commentsCount, people, clip, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
+    raters, commentsCount, people, clip, trailerAlt, ...f, genres: parseJson(f.genres, []), backdrops: parseJson(f.backdrops, []),
     palette: Array.isArray(pal) && pal.length === 4 && pal.every(c => /^#[0-9a-f]{6}$/i.test(c)) ? pal : null,
     trailer: /^[\w-]{6,20}$/.test(f.trailer || '') ? f.trailer : null
   });
@@ -412,6 +414,51 @@ app.post('/api/films/:id/clip', needAdmin, async (req, res) => {
   }
   await pool.query('update films set clip_mode = $2::text, clip_video = $3::text, clip_cuts = $4::text where imdb_id = $1',
     [req.params.id, mode, video, cuts ? JSON.stringify(cuts) : null]);
+  res.json({ ok: true });
+});
+
+// --- картинки TMDB через наш сервер: в некоторых странах image.tmdb.org недоступен без VPN, а наш сайт открывается ---
+const IMG_SIZES = new Set(['w92', 'w154', 'w185', 'w342', 'w500', 'w780', 'w1280']);
+const imgCache = new Map(); let imgBytes = 0;
+app.get('/img/:size/:file', async (req, res) => {
+  const { size, file } = req.params;
+  if (!IMG_SIZES.has(size) || !/^[\w-]+\.(jpg|jpeg|png)$/i.test(file)) return res.status(404).end();
+  const key = size + '/' + file;
+  let hit = imgCache.get(key);
+  if (hit) { imgCache.delete(key); imgCache.set(key, hit); }
+  else {
+    try {
+      const r = await fetch(`https://image.tmdb.org/t/p/${size}/${file}`);
+      if (!r.ok) return res.status(r.status === 404 ? 404 : 502).end();
+      hit = { type: r.headers.get('content-type') || 'image/jpeg', buf: Buffer.from(await r.arrayBuffer()) };
+      if (hit.buf.length < 600000) {
+        imgCache.set(key, hit); imgBytes += hit.buf.length;
+        while (imgBytes > 40e6) { const k = imgCache.keys().next().value; imgBytes -= imgCache.get(k).buf.length; imgCache.delete(k); }
+      }
+    } catch { return res.status(502).end(); }
+  }
+  res.set({ 'Content-Type': hit.type, 'Cache-Control': 'public, max-age=2592000, immutable' });
+  res.send(hit.buf);
+});
+
+// --- запасной трейлер для тех, у кого не открывается YouTube: RuTube или VK Видео ---
+function altEmbed(raw) {
+  try {
+    const m = raw.match(/src=["']([^"']+)["']/);
+    const u = new URL(m ? m[1] : raw);
+    if (u.protocol !== 'https:') return null;
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'rutube.ru') { const id = u.pathname.match(/\/(?:video|play\/embed)\/([0-9a-f]{32})/i)?.[1]; return id ? `https://rutube.ru/play/embed/${id}` : null; }
+    if (['vk.com', 'vkvideo.ru', 'vk.ru'].includes(host) && u.pathname.includes('video_ext.php')) return u.toString();
+    return null;
+  } catch { return null; }
+}
+app.post('/api/films/:id/trailer-alt', needAdmin, async (req, res) => {
+  const raw = String(req.body?.url || '').trim();
+  if (!raw) { await pool.query('update films set trailer_alt = null where imdb_id = $1', [req.params.id]); return res.json({ ok: true }); }
+  const url = altEmbed(raw);
+  if (!url) return res.status(400).json({ error: 'Нужна ссылка на видео RuTube (rutube.ru/video/…) или код для вставки VK Видео (video_ext.php)' });
+  await pool.query('update films set trailer_alt = $2::text where imdb_id = $1', [req.params.id, url]);
   res.json({ ok: true });
 });
 
