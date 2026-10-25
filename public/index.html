@@ -284,6 +284,21 @@ body.list .wrap{padding-top:84px}
 .lb-links{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:center}
 .lb-alt{font:inherit;font-size:13px;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 14px;cursor:pointer}
 .lb-down,.lb-wait{display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:rgba(255,255,255,.8)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px 14px}
+.pt{display:block;color:inherit;text-decoration:none;animation:ptin .4s both;animation-delay:calc(var(--i,0) * 18ms)}
+.pt-w{position:relative;aspect-ratio:2/3;border-radius:10px;overflow:hidden;background:var(--card);transition:box-shadow .2s}
+.pt:hover .pt-w{box-shadow:0 0 0 2px var(--accent)}
+.pt-w img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .35s}
+.pt:hover .pt-w img{transform:scale(1.05)}
+.pt-b{position:absolute;left:8px;bottom:8px;display:flex;gap:6px}
+.pt-b b{font-size:12px;border-radius:6px;padding:2px 7px}
+.pt-b .b-imdb{background:var(--imdb);color:#1b1c28}
+.pt-b .b-srv{background:var(--accent);color:#fff}
+.pt-me{position:absolute;top:8px;left:8px;font-size:12px;border-radius:6px;padding:2px 7px;background:rgba(15,16,20,.8);color:#fff}
+.pt-t{margin-top:8px;font-size:14px;line-height:1.3;overflow-wrap:anywhere}
+.pt-t small{display:block;color:var(--muted)}
+.pt-n{display:flex;height:100%;align-items:center;justify-content:center;text-align:center;padding:12px;font:700 17px/1.25 "Iowan Old Style",Georgia,serif;color:var(--muted);overflow-wrap:anywhere}
+@keyframes ptin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 </style>
 </head>
 <body>
@@ -399,14 +414,24 @@ function render() {
   const sec = SECTIONS.find(x => x.key === section);
   $('#sort').parentElement.style.display = section === 'chzl' ? 'none' : '';
   $('#chips').style.display = section === 'chzl' ? 'flex' : 'none';
-  $('#grid').className = section === 'chzl' ? 'rank' : 'grid';
+  $('#grid').className = section === 'chzl' ? 'rank' : 'tiles';
   if (section === 'chzl') { renderChzl(); return; }
   const m = $('#sort').value, list = films.filter(f => (f.kind || 'movie') === section);
   $('#secTitle').textContent = `${sec ? sec.title : ''} · ${list.length}`;
   const key = f => m === 'imdb' ? f.imdb ?? -1 : m === 'diff' ? (f.srv == null || f.imdb == null ? -99 : f.srv - f.imdb) : f.srv ?? -1;
   if (m !== 'new') list.sort((a, b) => key(b) - key(a));
   if (!list.length) { $('#grid').replaceChildren(h('div', { class: 'empty' }, me?.admin ? 'В этом разделе пока пусто. Добавьте произведения по IMDb ID, через поиск или импорт.' : 'В этом разделе пока ничего нет.')); return; }
-  $('#grid').replaceChildren(...list.map(cardEl));
+  $('#grid').replaceChildren(...list.map(tileEl));
+}
+
+// Постерная сетка: на постере две оценки (IMDb и сервера), под ним полное название и год
+function tileEl(f, i) {
+  return h('a', { class: 'pt', href: '/film/' + encodeURIComponent(f.id), title: tt(f), style: `--i:${Math.min(i, 24)}`, onclick: e => { e.preventDefault(); showFilm(f.id); } },
+    h('div', { class: 'pt-w' },
+      f.poster ? h('img', { src: f.poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('div', { class: 'pt-n' }, tt(f)),
+      f.mine ? h('span', { class: 'pt-me', title: 'Ваша оценка' }, '★ ' + f.mine) : null,
+      h('div', { class: 'pt-b' }, h('b', { class: 'b-imdb', title: 'IMDb' }, fmt(f.imdb)), h('b', { class: 'b-srv', title: f.n ? `Сервер, оценок: ${f.n}` : 'Пока никто не оценил' }, fmt(f.srv)))),
+    h('div', { class: 'pt-t' }, h('span', {}, tt(f)), h('small', {}, f.year || '')));
 }
 
 function cardEl(f) {
