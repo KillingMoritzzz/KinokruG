@@ -327,6 +327,8 @@ body.list .wrap{padding-top:84px}
 .out .pt{animation:ptout .28s ease-in forwards;animation-delay:calc(min(var(--i),14) * 14ms)}
 .in .pt{animation:ptink .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:calc(min(var(--i),20) * 28ms)}
 @keyframes ptout{to{opacity:0;transform:translateY(12px) scale(.96)}}
+.out .rrow{animation:ptout .28s ease-in forwards;animation-delay:calc(min(var(--i,0),14) * 14ms)}
+.in .rrow{animation:ptink .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:calc(min(var(--i,0),20) * 28ms)}
 @keyframes ptink{from{opacity:0;transform:translateY(18px) scale(.94)}}
 </style>
 </head>
@@ -890,7 +892,7 @@ function clipEditor(d) {
 }
 
 // --- анимация перехода между разделами: iris (диафрагма), curtain (шторка), strip (киноплёнка), cascade (каскад постеров), none ---
-const SECTION_ANIM = 'iris';
+const SECTION_ANIM = 'cascade';
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, wait = ms => new Promise(r => setTimeout(r, ms));
 const ovx = css => { const e = h('div', { class: 'ovx', style: css || null }); document.body.append(e); return e; };
 const ANIMS = {
@@ -920,8 +922,11 @@ const ANIMS = {
     o.remove();
   },
   cascade: async ch => {
-    if (view !== 'list') return ANIMS.iris(ch);
-    const L = $('#grid'); L.classList.add('out'); await wait(320); ch(); L.classList.remove('out'); L.classList.add('in'); await wait(900); L.classList.remove('in');
+    const L = $('#grid');
+    if (view === 'list') { L.classList.add('out'); await wait(320); }   // постеры текущего раздела по очереди уходят
+    ch();
+    L.classList.remove('out'); L.classList.add('in');                    // постеры нового появляются по очереди (класс остаётся, чтобы анимация не повторялась)
+
   }
 };
 let animBusy = false;
@@ -962,7 +967,7 @@ function renderChzl() {
   $('#chips').replaceChildren(...[{ key: 'all', title: 'Все' }, ...SECTIONS.filter(x => x.key !== 'chzl')].map(x =>
     h('button', { class: chzlKind === x.key ? 'on' : '', onclick: () => { chzlKind = x.key; render(); } }, x.title)));
   const rows = films.filter(f => f.n > 0 && (chzlKind === 'all' || (f.kind || 'movie') === chzlKind)).sort((a, b) => (b.srv - a.srv) || (b.n - a.n));
-  $('#grid').replaceChildren(...(rows.length ? rows.map((f, i) => h('a', { class: 'rrow', href: '/film/' + encodeURIComponent(f.id), onclick: e => { e.preventDefault(); showFilm(f.id); } },
+  $('#grid').replaceChildren(...(rows.length ? rows.map((f, i) => h('a', { class: 'rrow', style: `--i:${Math.min(i, 20)}`, href: '/film/' + encodeURIComponent(f.id), onclick: e => { e.preventDefault(); showFilm(f.id); } },
       h('span', { class: 'no' }, String(i + 1)),
       f.poster ? h('img', { src: f.poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'th' }),
       h('div', { class: 'rt' }, h('b', {}, tt(f)), h('small', {}, [f.year, secName(f.kind || 'movie')].filter(Boolean).join(' · '))),
