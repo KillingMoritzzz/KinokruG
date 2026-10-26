@@ -299,6 +299,35 @@ body.list .wrap{padding-top:84px}
 .pt-t small{display:block;color:var(--muted)}
 .pt-n{display:flex;height:100%;align-items:center;justify-content:center;text-align:center;padding:12px;font:700 17px/1.25 "Iowan Old Style",Georgia,serif;color:var(--muted);overflow-wrap:anywhere}
 @keyframes ptin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@property --r{syntax:'<length>';inherits:false;initial-value:150vmax}
+.filters{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end;margin-bottom:12px}
+.fg{display:flex;flex-direction:column;gap:6px;min-width:0}
+.fg>label{font-size:12px;color:var(--muted)}
+.fpills{display:flex;flex-wrap:wrap;gap:6px;max-width:640px}
+.fpill{font:inherit;font-size:13px;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer;transition:border-color .2s}
+.fpill:hover{border-color:var(--accent)}
+.fpill.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.freset{font:inherit;font-size:13px;background:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;color:var(--muted)}
+.active{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px;color:var(--muted);font-size:14px}
+.fac{font:inherit;font-size:13px;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 12px;cursor:pointer}
+.fac:hover{border-color:var(--accent)}
+.tiles .empty{grid-column:1/-1}
+.fp-tagbtn{font:inherit;font-size:13px;cursor:pointer;transition:background .2s,color .2s}
+.fp-tagbtn:hover{background:color-mix(in srgb,var(--accent) 28%,transparent);color:#fff}
+.ovx{position:fixed;inset:0;z-index:60;pointer-events:none;overflow:hidden}
+.cl,.cr{position:absolute;top:0;bottom:0;width:50.5%;background:#0a0b10}
+.cl{left:0;border-right:2px solid var(--accent)}
+.cr{right:0;border-left:2px solid var(--accent)}
+.band{position:absolute;left:0;right:0;top:50%;height:160px;transform:translateY(-50%);background:#171925;overflow:hidden}
+.band::before,.band::after{content:"";position:absolute;left:0;right:0;height:14px;background:repeating-linear-gradient(90deg,#0a0b10 0 14px,transparent 14px 30px)}
+.band::before{top:6px}
+.band::after{bottom:6px}
+.reel{display:flex;gap:14px;height:100%;padding:28px 0;width:max-content}
+.reel b{display:block;width:210px;border-radius:4px;background:linear-gradient(135deg,var(--accent),#272c6b);opacity:.92}
+.out .pt{animation:ptout .28s ease-in forwards;animation-delay:calc(min(var(--i),14) * 14ms)}
+.in .pt{animation:ptink .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:calc(min(var(--i),20) * 28ms)}
+@keyframes ptout{to{opacity:0;transform:translateY(12px) scale(.96)}}
+@keyframes ptink{from{opacity:0;transform:translateY(18px) scale(.94)}}
 </style>
 </head>
 <body>
@@ -336,16 +365,8 @@ body.list .wrap{padding-top:84px}
   <div id="adminBox"></div>
   <h2 id="secTitle" class="sec-title"></h2>
   <div id="chips" class="chiprow"></div>
-  <div class="bar">
-    <label>Сортировка:
-      <select id="sort">
-        <option value="srv">по оценке сервера</option>
-        <option value="imdb">по IMDb</option>
-        <option value="diff">по разнице (сервер − IMDb)</option>
-        <option value="new">сначала новые</option>
-      </select>
-    </label>
-  </div>
+  <div id="filters" class="filters"></div>
+  <div id="active" class="active"></div>
   <div id="grid" class="grid"></div>
   <div class="credit">Русские названия: TMDB. Этот сайт использует API TMDB, но не одобрен и не сертифицирован TMDB.</div>
 </div>
@@ -410,18 +431,62 @@ function renderAdmin() {
   loadRequests();
 }
 
+// --- списки: фильтры сверху (поиск, сортировка, формат аниме, жанры, десятилетие) ---
+const FS = { q: '', sort: 'srv', genres: new Set(), decade: '', format: 'all' };
+const SORT_OPTS = [['srv', 'По оценке сервера'], ['imdb', 'По рейтингу IMDb'], ['diff', 'По разнице (сервер − IMDb)'], ['year', 'Сначала новые (по году выхода)'], ['added', 'Недавно добавленные'], ['name', 'По названию']];
+const yearOf = f => parseInt(String(f.year || '').slice(0, 4)) || 0;
+const cap1 = g => g ? g[0].toUpperCase() + g.slice(1) : g;
+const searchEl = h('input', { type: 'search', placeholder: 'Поиск по названию' });
+searchEl.addEventListener('input', () => { FS.q = searchEl.value; renderActive(); renderList(); });
+const inSection = f => (f.kind || 'movie') === section && (section !== 'anime' || FS.format === 'all' || (FS.format === 'film') === (f.media !== 'tv'));
+function filteredList() {
+  let a = films.filter(inSection);
+  if (FS.genres.size) a = a.filter(f => [...FS.genres].every(g => (f.genres || []).includes(g)));
+  if (FS.decade) a = a.filter(f => Math.floor(yearOf(f) / 10) * 10 === +FS.decade);
+  const q = norm(FS.q).trim();
+  if (q) a = a.filter(f => norm(tt(f) + ' ' + f.title).includes(q));
+  const K = { srv: f => f.srv ?? -1, imdb: f => f.imdb ?? -1, diff: f => (f.srv == null || f.imdb == null) ? -99 : f.srv - f.imdb, year: yearOf, added: f => f.added || 0 };
+  if (FS.sort === 'name') a.sort((x, y) => tt(x).localeCompare(tt(y), 'ru')); else a.sort((x, y) => K[FS.sort](y) - K[FS.sort](x));
+  return a;
+}
+function toggleSet(set, v) { if (set.has(v)) set.delete(v); else set.add(v); }
+function renderFilters() {
+  const base = films.filter(f => (f.kind || 'movie') === section);
+  const genres = [...new Set(base.flatMap(f => f.genres || []))].sort((a, b) => a.localeCompare(b, 'ru'));
+  const decs = [...new Set(base.map(f => Math.floor(yearOf(f) / 10) * 10).filter(Boolean))].sort();
+  const pills = (arr, isOn, on) => h('div', { class: 'fpills' }, ...arr.map(([k, t]) => h('button', { class: 'fpill' + (isOn(k) ? ' on' : ''), onclick: () => on(k) }, t)));
+  const sort = h('select', {}, ...SORT_OPTS.map(([k, t]) => h('option', { value: k, selected: FS.sort === k ? '' : null }, t)));
+  sort.onchange = () => { FS.sort = sort.value; renderList(); };
+  const dec = h('select', {}, h('option', { value: '' }, 'Любые годы'), ...decs.map(d => h('option', { value: d, selected: String(FS.decade) === String(d) ? '' : null }, d + '-е')));
+  dec.onchange = () => { FS.decade = dec.value; renderActive(); renderList(); };
+  $('#filters').replaceChildren(
+    h('div', { class: 'fg' }, h('label', {}, 'Поиск'), searchEl),
+    h('div', { class: 'fg' }, h('label', {}, 'Сортировка'), sort),
+    ...(section === 'anime' ? [h('div', { class: 'fg' }, h('label', {}, 'Формат'), pills([['all', 'Все'], ['film', 'Полнометражные'], ['series', 'Сериалы']], k => FS.format === k, k => { FS.format = k; render(); }))] : []),
+    ...(genres.length ? [h('div', { class: 'fg' }, h('label', {}, 'Жанр'), pills(genres.map(g => [g, cap1(g)]), g => FS.genres.has(g), g => { toggleSet(FS.genres, g); render(); }))] : []),
+    h('div', { class: 'fg' }, h('label', {}, 'Год выхода'), dec),
+    h('button', { class: 'freset', onclick: () => { FS.genres.clear(); FS.decade = ''; FS.format = 'all'; FS.q = ''; searchEl.value = ''; render(); } }, 'Сбросить'));
+}
+function renderActive() {
+  const chip = (t, f) => h('button', { class: 'fac', onclick: () => { f(); render(); } }, t + '  ×');
+  $('#active').replaceChildren(h('span', {}, `Найдено: ${filteredList().length}`),
+    ...[...FS.genres].map(g => chip('Жанр: ' + cap1(g), () => FS.genres.delete(g))),
+    ...(FS.decade ? [chip(FS.decade + '-е', () => { FS.decade = ''; })] : []),
+    ...(FS.format !== 'all' && section === 'anime' ? [chip(FS.format === 'film' ? 'Полнометражные' : 'Сериалы', () => { FS.format = 'all'; })] : []));
+}
+function renderList() {
+  const list = filteredList(), total = films.filter(f => (f.kind || 'movie') === section).length;
+  $('#grid').replaceChildren(...(list.length ? list.map(tileEl)
+    : [h('div', { class: 'empty' }, total ? 'Ничего не найдено. Попробуйте убрать часть фильтров.' : me?.admin ? 'В этом разделе пока пусто. Добавьте произведения по IMDb ID, через поиск или импорт.' : 'В этом разделе пока ничего нет.')]));
+}
 function render() {
-  const sec = SECTIONS.find(x => x.key === section);
-  $('#sort').parentElement.style.display = section === 'chzl' ? 'none' : '';
-  $('#chips').style.display = section === 'chzl' ? 'flex' : 'none';
-  $('#grid').className = section === 'chzl' ? 'rank' : 'tiles';
-  if (section === 'chzl') { renderChzl(); return; }
-  const m = $('#sort').value, list = films.filter(f => (f.kind || 'movie') === section);
-  $('#secTitle').textContent = `${sec ? sec.title : ''} · ${list.length}`;
-  const key = f => m === 'imdb' ? f.imdb ?? -1 : m === 'diff' ? (f.srv == null || f.imdb == null ? -99 : f.srv - f.imdb) : f.srv ?? -1;
-  if (m !== 'new') list.sort((a, b) => key(b) - key(a));
-  if (!list.length) { $('#grid').replaceChildren(h('div', { class: 'empty' }, me?.admin ? 'В этом разделе пока пусто. Добавьте произведения по IMDb ID, через поиск или импорт.' : 'В этом разделе пока ничего нет.')); return; }
-  $('#grid').replaceChildren(...list.map(tileEl));
+  const sec = SECTIONS.find(x => x.key === section), chz = section === 'chzl';
+  $('#filters').style.display = $('#active').style.display = chz ? 'none' : '';
+  $('#chips').style.display = chz ? 'flex' : 'none';
+  $('#grid').className = chz ? 'rank' : 'tiles';
+  if (chz) { renderChzl(); return; }
+  $('#secTitle').textContent = `${sec ? sec.title : ''} · ${films.filter(f => (f.kind || 'movie') === section).length}`;
+  renderFilters(); renderActive(); renderList();
 }
 
 // Постерная сетка: на постере две оценки (IMDb и сервера), под ним полное название и год
@@ -824,6 +889,49 @@ function clipEditor(d) {
   return h('div', { class: 'fp-clip-edit' }, mode, video, cuts, save, msg);
 }
 
+// --- анимация перехода между разделами: iris (диафрагма), curtain (шторка), strip (киноплёнка), cascade (каскад постеров), none ---
+const SECTION_ANIM = 'iris';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, wait = ms => new Promise(r => setTimeout(r, ms));
+const ovx = css => { const e = h('div', { class: 'ovx', style: css || null }); document.body.append(e); return e; };
+const ANIMS = {
+  curtain: async ch => {
+    const o = ovx(), l = h('i', { class: 'cl' }), r = h('i', { class: 'cr' }); o.append(l, r);
+    const t = { duration: 380, easing: 'cubic-bezier(.7,0,.3,1)', fill: 'forwards' };
+    await Promise.all([l.animate([{ transform: 'translateX(-100%)' }, { transform: 'none' }], t).finished, r.animate([{ transform: 'translateX(100%)' }, { transform: 'none' }], t).finished]);
+    ch(); await wait(120);
+    await Promise.all([l.animate([{ transform: 'none' }, { transform: 'translateX(-100%)' }], t).finished, r.animate([{ transform: 'none' }, { transform: 'translateX(100%)' }], t).finished]);
+    o.remove();
+  },
+  strip: async ch => {
+    const o = ovx('background:#0a0b10;opacity:0'), row = h('div', { class: 'reel' });
+    for (let i = 0; i < 8; i++) row.append(h('b'));
+    o.append(h('div', { class: 'band' }, row));
+    await o.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, fill: 'forwards' }).finished;
+    const run = row.animate([{ transform: 'translateX(100vw)' }, { transform: 'translateX(-110%)' }], { duration: 1000, easing: 'linear', fill: 'forwards' });
+    await wait(420); ch(); await run.finished;
+    await o.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: 'forwards' }).finished;
+    o.remove();
+  },
+  iris: async ch => {
+    const o = ovx('background:radial-gradient(circle at 50% 50%,transparent var(--r),#0a0b10 calc(var(--r) + 1px))');
+    await o.animate([{ '--r': '150vmax' }, { '--r': '0px' }], { duration: 520, easing: 'cubic-bezier(.6,0,.4,1)', fill: 'forwards' }).finished;
+    ch(); await wait(160);
+    await o.animate([{ '--r': '0px' }, { '--r': '150vmax' }], { duration: 620, easing: 'cubic-bezier(.2,.6,.3,1)', fill: 'forwards' }).finished;
+    o.remove();
+  },
+  cascade: async ch => {
+    if (view !== 'list') return ANIMS.iris(ch);
+    const L = $('#grid'); L.classList.add('out'); await wait(320); ch(); L.classList.remove('out'); L.classList.add('in'); await wait(900); L.classList.remove('in');
+  }
+};
+let animBusy = false;
+async function withTransition(fn) {
+  if (animBusy) return;
+  if (reduced || SECTION_ANIM === 'none' || !ANIMS[SECTION_ANIM]) { fn(); return; }
+  animBusy = true;
+  try { await ANIMS[SECTION_ANIM](fn); } catch { fn(); } finally { animBusy = false; }
+}
+
 // --- остров с разделами ---
 const SECTIONS = [
   { key: 'movie', title: 'Фильмы', path: '/movies' }, { key: 'series', title: 'Сериалы', path: '/series' },
@@ -835,16 +943,17 @@ let section = 'movie', chzlKind = 'all';
 const secName = k => (SECTIONS.find(x => x.key === k) || {}).title;
 const secPath = k => (SECTIONS.find(x => x.key === k) || {}).path || '/';
 function buildIsland() {
-  $('#island').replaceChildren(h('button', { 'data-k': 'home', onclick: () => goHome() }, 'Главная'), h('span', { class: 'sep' }),
-    ...SECTIONS.map(x => h('button', { 'data-k': x.key, onclick: () => goSection(x.key) }, x.title)));
+  $('#island').replaceChildren(h('button', { 'data-k': 'home', onclick: () => withTransition(() => goHome()) }, 'Главная'), h('span', { class: 'sep' }),
+    ...SECTIONS.map(x => h('button', { 'data-k': x.key, onclick: () => withTransition(() => goSection(x.key)) }, x.title)));
 }
 function updateIsland() {
   document.querySelectorAll('#island button').forEach(b => b.classList.toggle('on', view === 'home' ? b.dataset.k === 'home' : view === 'list' && b.dataset.k === section));
 }
 function goHome(push = true) { if (push) history.pushState(null, '', '/'); setView(me ? 'home' : 'landing'); }
-function goSection(key, push = true) {
+function goSection(key, push = true, opts = {}) {
   section = key;
-  if (push) history.pushState({ section: key }, '', secPath(key));
+  FS.genres = new Set(opts.genre ? [opts.genre] : []); FS.decade = ''; FS.format = 'all'; FS.q = ''; searchEl.value = '';
+  if (push) history.pushState({ section: key }, '', secPath(key) + (opts.genre ? '?genre=' + encodeURIComponent(opts.genre) : ''));
   if (view !== 'list') setView('list'); else scrollTo(0, 0);
   render(); updateIsland();
 }
@@ -1053,8 +1162,9 @@ function renderFilm(d) {
   if (!me) btns.push(h('a', { class: 'fp-btn', href: '/auth/login' }, 'Войти, чтобы оценить'));
   const tv = d.media === 'tv', kk = d.kind || 'movie';
   const seasonsTxt = d.seasons ? `${d.seasons} ${plural(d.seasons, 'сезон', 'сезона', 'сезонов')}` : '';
-  const tags = [...(d.genres || []), seasonsTxt, d.runtime ? d.runtime + (tv ? ' мин/серия' : ' мин') : ''].filter(Boolean).map(t => h('span', { class: 'fp-tag' }, t));
-  const kindChip = h('a', { class: 'fp-tag fp-kind', href: secPath(kk), title: 'Открыть раздел', onclick: e => { e.preventDefault(); goSection(kk); } }, secName(kk) || 'Фильмы');
+  const tags = [...(d.genres || []).map(g => h('button', { class: 'fp-tag fp-tagbtn', title: 'Показать в разделе', onclick: () => withTransition(() => goSection(kk, true, { genre: g })) }, g)),
+    ...[seasonsTxt, d.runtime ? d.runtime + (tv ? ' мин/серия' : ' мин') : ''].filter(Boolean).map(t => h('span', { class: 'fp-tag' }, t))];
+  const kindChip = h('a', { class: 'fp-tag fp-kind', href: secPath(kk), title: 'Открыть раздел', onclick: e => { e.preventDefault(); withTransition(() => goSection(kk)); } }, secName(kk) || 'Фильмы');
   const shots = (d.backdrops || []).map(p => ({ src: 'https://image.tmdb.org/t/p/w1280' + p, thumb: 'https://image.tmdb.org/t/p/w780' + p }));
   $('#filmBody').replaceChildren(
     h('div', { class: 'fp-top' }, h('button', { class: 'fp-back', onclick: leaveFilm }, '← Назад')),
@@ -1087,14 +1197,13 @@ function renderFilm(d) {
 addEventListener('popstate', () => {
   const m = location.pathname.match(/^\/film\/(tt\d+)/), pm = location.pathname.match(/^\/person\/(\d+)/);
   const sc = SECTIONS.find(x => x.path === location.pathname);
-  if (m) showFilm(m[1], false); else if (pm) showPerson(pm[1], false); else if (sc) goSection(sc.key, false); else goHome(false);
+  if (m) showFilm(m[1], false); else if (pm) showPerson(pm[1], false); else if (sc) goSection(sc.key, false, { genre: new URLSearchParams(location.search).get('genre') }); else goHome(false);
 });
 
 (async () => {
   $('#site').textContent = '🎬 ' + SITE;
   $('#heroTitle').textContent = '🎬 ' + SITE;
   $('#guest').addEventListener('click', () => goSection('movie'));
-  $('#sort').addEventListener('change', render);
   const err = new URLSearchParams(location.search).get('error');
   if (err === 'notmember') say('Оценивать могут только участники нашего сервера Discord. Вступите на сервер и войдите снова.');
   else if (err === 'login') say('Не удалось войти через Discord. Попробуйте ещё раз.');
@@ -1106,7 +1215,7 @@ addEventListener('popstate', () => {
   const fm = location.pathname.match(/^\/film\/(tt\d+)/);
   const pm = location.pathname.match(/^\/person\/(\d+)/);
   const sc0 = SECTIONS.find(x => x.path === location.pathname);
-  if (fm) showFilm(fm[1], false); else if (pm) showPerson(pm[1], false); else if (sc0) goSection(sc0.key, false);
+  if (fm) showFilm(fm[1], false); else if (pm) showPerson(pm[1], false); else if (sc0) goSection(sc0.key, false, { genre: new URLSearchParams(location.search).get('genre') });
   checkNews();
   try { await load(); } catch (e) { say(e.message); }
 })();

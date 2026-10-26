@@ -146,12 +146,12 @@ app.get('/api/me', async (req, res) => {
 // --- фильмы и оценки ---
 app.get('/api/films', async (req, res) => {
   const { rows } = await pool.query(`
-    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb, f.kind,
+    select f.imdb_id id, f.title, f.title_ru ru, f.year, f.poster, f.imdb_rating::float imdb, f.kind, f.media, f.genres, extract(epoch from f.added_at)::float8 added,
            avg(r.score)::float srv, count(r.score)::int n,
            max(case when r.user_id = $1 then r.score end) mine
     from films f left join ratings r on r.film_id = f.imdb_id
     group by f.imdb_id order by f.added_at desc`, [req.user?.id || '']);
-  res.json(rows);
+  res.json(rows.map(r => ({ ...r, genres: parseJson(r.genres, []) })));
 });
 
 const parseJson = (t, d) => { try { return t ? JSON.parse(t) : d; } catch { return d; } };
