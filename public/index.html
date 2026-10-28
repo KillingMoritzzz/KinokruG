@@ -330,6 +330,35 @@ body.list .wrap{padding-top:84px}
 .out .rrow{animation:ptout .28s ease-in forwards;animation-delay:calc(min(var(--i,0),14) * 14ms)}
 .in .rrow{animation:ptink .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:calc(min(var(--i,0),20) * 28ms)}
 @keyframes ptink{from{opacity:0;transform:translateY(18px) scale(.94)}}
+.ss{display:flex;flex-direction:column;gap:8px;max-width:820px}
+.ss-s{border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(0,0,0,.28);backdrop-filter:blur(8px)}
+.ss-s summary{list-style:none;cursor:pointer;display:flex;gap:14px;align-items:center;padding:12px 16px}
+.ss-s summary::-webkit-details-marker{display:none}
+.ss-s summary::before{content:'›';color:rgba(255,255,255,.6);transition:transform .2s;font-size:22px;line-height:1}
+.ss-s[open] summary::before{transform:rotate(90deg)}
+.ss-n{font-weight:700}
+.ss-m{color:rgba(255,255,255,.6);flex:1}
+.ss-sc{display:flex;flex-direction:column;align-items:flex-end;min-width:84px}
+.ss-sc b{color:var(--accent);font-size:20px;line-height:1}
+.ss-sc small{color:rgba(255,255,255,.6);font-size:12px}
+.ss-me{min-width:34px;text-align:right;color:var(--c4,#fff);font-weight:600}
+.ss-body{padding:2px 16px 14px;border-top:1px solid rgba(255,255,255,.1)}
+.ss-vote{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 0}
+.ss-lab{color:rgba(255,255,255,.75);font-size:14px}
+.ss-strip{display:flex;gap:4px;flex-wrap:wrap}
+.ss-strip button{font:inherit;min-width:32px;padding:6px 0;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.3);color:#f3f1ec;cursor:pointer}
+.ss-strip button:hover:not(:disabled){border-color:var(--accent)}
+.ss-strip button.on{background:var(--accent);border-color:var(--accent);color:#111;font-weight:700}
+.ss-strip button:disabled{opacity:.45;cursor:default}
+.ss-e{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,.08)}
+.ss-eno{width:28px;text-align:center;color:rgba(255,255,255,.55);flex:none}
+.ss-et{flex:1;min-width:0}
+.ss-et b{display:block;font-weight:500}
+.ss-et small{color:rgba(255,255,255,.55)}
+.ss-rate{flex:none;font:inherit;font-size:13px;color:#f3f1ec;background:none;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:4px 12px;cursor:pointer}
+.ss-rate.on{background:var(--accent);border-color:var(--accent);color:#111;font-weight:600}
+.ss-pop{padding:0 0 10px 40px}
+@media (max-width:620px){.ss-m{display:none}.ss-s summary{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -862,6 +891,50 @@ function parseCuts(text) {
   }
   return out;
 }
+// --- сериалы: оценки сезонов и отдельных серий ---
+function seasonsBlock(d) {
+  const base = '/api/films/' + encodeURIComponent(d.id) + '/seasons';
+  const box = h('div', { class: 'ss' }, h('p', { class: 'fp-empty' }, 'Загружаю сезоны…'));
+  const strip = (cur, pick) => h('div', { class: 'ss-strip' }, ...Array.from({ length: 10 }, (_, k) =>
+    h('button', { class: cur === k + 1 ? 'on' : '', disabled: !me, onclick: () => pick(cur === k + 1 ? null : k + 1) }, String(k + 1))));
+  const score = o => h('span', { class: 'ss-sc' }, h('b', {}, fmt(o.srv)), h('small', {}, o.count ? 'оценок: ' + o.count : 'нет оценок'));
+  function epEl(s, e) {
+    const row = h('div', { class: 'ss-e' }), pop = h('div', { class: 'ss-pop' });
+    const draw = () => row.replaceChildren(h('span', { class: 'ss-eno' }, String(e.e)),
+      h('div', { class: 'ss-et' }, h('b', {}, e.name), h('small', {}, [e.date ? new Date(e.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '', e.runtime ? e.runtime + ' мин' : ''].filter(Boolean).join(' · '))),
+      score(e), h('button', { class: 'ss-rate' + (e.mine ? ' on' : ''), title: me ? '' : 'Войдите через Discord, чтобы оценить', onclick: () => { pop.hidden = !pop.hidden; } }, e.mine ? '★ ' + e.mine : 'Оценить'));
+    const drawPop = () => pop.replaceChildren(strip(e.mine, async v => {
+      try { Object.assign(e, await api(`${base}/${s.n}/episodes/${e.e}/rate`, 'POST', { score: v })); draw(); drawPop(); pop.hidden = true; } catch (er) { alert(er.message); }
+    }));
+    pop.hidden = true; draw(); drawPop();
+    return h('div', { class: 'ss-ew' }, row, pop);
+  }
+  function seasonEl(s, open) {
+    const det = h('details', { class: 'ss-s' }), head = h('summary', {}), vote = h('div', { class: 'ss-vote' });
+    const eps = h('div', { class: 'ss-eps' }, h('p', { class: 'fp-empty' }, 'Загружаю серии…'));
+    let loaded = false;
+    const drawHead = () => head.replaceChildren(h('b', { class: 'ss-n' }, s.name),
+      h('small', { class: 'ss-m' }, [s.episodes + ' ' + plural(s.episodes, 'серия', 'серии', 'серий'), s.date].filter(Boolean).join(' · ')), score(s), h('span', { class: 'ss-me' }, s.mine ? '★ ' + s.mine : ''));
+    const drawVote = () => vote.replaceChildren(h('span', { class: 'ss-lab' }, me ? 'Ваша оценка сезона:' : 'Войдите через Discord, чтобы оценить'),
+      strip(s.mine, async v => { try { Object.assign(s, await api(`${base}/${s.n}/rate`, 'POST', { score: v })); drawHead(); drawVote(); } catch (e) { alert(e.message); } }));
+    det.addEventListener('toggle', async () => {
+      if (!det.open || loaded) return;
+      loaded = true;
+      try {
+        const r = await api(`${base}/${s.n}`);
+        eps.replaceChildren(...(r.episodes.length ? r.episodes.map(e => epEl(s, e)) : [h('p', { class: 'fp-empty' }, 'Список серий пока недоступен.')]));
+      } catch (e) { loaded = false; eps.replaceChildren(h('p', { class: 'fp-empty' }, e.message)); }
+    });
+    drawHead(); drawVote();
+    det.append(head, h('div', { class: 'ss-body' }, vote, eps));
+    if (open) det.open = true;
+    return det;
+  }
+  api(base).then(r => box.replaceChildren(...(r.seasons.length ? r.seasons.map((s, i) => seasonEl(s, r.seasons.length === 1)) : [h('p', { class: 'fp-empty' }, 'Данных о сезонах пока нет.')])))
+    .catch(e => box.replaceChildren(h('p', { class: 'fp-empty' }, e.message)));
+  return box;
+}
+
 function altEditor(d) {
   const inp = h('input', { placeholder: 'Запасной трейлер: ссылка на RuTube или код для вставки VK Видео', value: d.trailerAlt || '' });
   const msg = h('span', { class: 'fp-hint' }, 'Для тех, у кого не открывается YouTube. Пустое поле убирает запасной трейлер.');
@@ -1184,6 +1257,7 @@ function renderFilm(d) {
           h('div', { class: 'fp-s fp-srv' }, h('b', {}, fmt(d.srv)), h('small', {}, `Сервер, оценок: ${d.n}`))),
         vote, hint, h('div', { class: 'fp-btns' }, ...btns), me && me.admin ? kindEditor(d) : null, me && me.admin ? clipEditor(d) : null, me && me.admin ? altEditor(d) : null)),
     ...(d.overview ? [h('h2', {}, 'О фильме'), h('p', { class: 'fp-desc' }, d.overview)] : []),
+    ...(d.media === 'tv' ? [h('h2', {}, 'Сезоны и серии'), seasonsBlock(d)] : []),
     ...(((d.people?.directors || []).length || (d.people?.cast || []).length) ? [h('h2', {}, d.media === 'tv' ? 'Создатели и актёры' : 'Режиссёр и актёры'),
       ...((d.people.directors || []).length ? [h('p', { class: 'fp-dir' }, d.media === 'tv' ? 'Создатель: ' : 'Режиссёр: ', ...d.people.directors.flatMap((p, i) => [i ? ', ' : null, personLink(p)]))] : []),
       ...((d.people.cast || []).length ? [h('div', { class: 'fp-cast' }, ...d.people.cast.map(p => h('a', { class: 'fp-actor', href: '/person/' + p.id, title: p.name, onclick: e => { e.preventDefault(); showPerson(p.id); } },

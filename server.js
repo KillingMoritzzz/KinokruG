@@ -67,7 +67,16 @@ await pool.query(`
   alter table films add column if not exists clip_mode text default 'off';
   alter table films add column if not exists clip_video text;
   alter table films add column if not exists clip_cuts text;
-  alter table films add column if not exists trailer_alt text;`);
+  alter table films add column if not exists trailer_alt text;
+  create table if not exists season_ratings(
+    film_id text references films(imdb_id) on delete cascade, season int not null, user_id text not null,
+    score int check (score between 1 and 10), primary key (film_id, season, user_id));
+  create table if not exists episode_ratings(
+    film_id text references films(imdb_id) on delete cascade, season int not null, episode int not null, user_id text not null,
+    score int check (score between 1 and 10), primary key (film_id, season, episode, user_id));
+  create table if not exists season_cache(
+    film_id text references films(imdb_id) on delete cascade, season int not null, data text,
+    fetched_at timestamptz default now(), primary key (film_id, season));`);
 
 // Данные участника (имя и аватар из Discord) нужны, чтобы показывать, кто оценил фильм и кто написал комментарий
 const saveUser = (u, avatar) => pool.query(`
@@ -460,6 +469,77 @@ app.post('/api/films/:id/trailer-alt', needAdmin, async (req, res) => {
   if (!url) return res.status(400).json({ error: 'Нужна ссылка на видео RuTube (rutube.ru/video/…) или код для вставки VK Видео (video_ext.php)' });
   await pool.query('update films set trailer_alt = $2::text where imdb_id = $1', [req.params.id, url]);
   res.json({ ok: true });
+});
+
+// --- сериалы: оценки сезонов и отдельных серий (списки сезонов и серий берём у TMDB и запоминаем на 14 дней) ---
+async function cachedSeason(filmId, season, fetcher) {
+  const r = (await pool.query(`select data, fetched_at > now() - interval '14 days' as fresh from season_cache where film_id = $1 and season = $2`, [filmId, season])).rows[0];
+  if (r?.fresh) return parseJson(r.data, null);
+  let data = null;
+  try { data = await fetcher(); } catch {}
+  if (data) {
+    await pool.query(`insert into season_cache(film_id, season, data) values ($1, $2, $3::text)
+      on conflict (film_id, season) do update set data = excluded.data, fetched_at = now()`, [filmId, season, JSON.stringify(data)]);
+    return data;
+  }
+  return r ? parseJson(r.data, null) : null;
+}
+async function tvTmdbId(filmId) {
+  if (!TMDB_KEY) return null;
+  const f = (await pool.query('select tmdb_id, media from films where imdb_id = $1', [filmId])).rows[0];
+  return f && f.media === 'tv' ? f.tmdb_id : null;
+}
+const seasonList = (filmId, tid) => cachedSeason(filmId, -1, async () =>
+  (await tmdbGet(`/tv/${tid}`, { language: 'ru-RU' })).seasons.filter(x => x.episode_count > 0)
+    .map(x => ({ n: x.season_number, name: x.name || `Сезон ${x.season_number}`, episodes: x.episode_count, date: (x.air_date || '').slice(0, 4) || null })));
+const episodeList = (filmId, tid, n) => cachedSeason(filmId, n, async () =>
+  ((await tmdbGet(`/tv/${tid}/season/${n}`, { language: 'ru-RU' })).episodes || [])
+    .map(x => ({ e: x.episode_number, name: x.name || `Серия ${x.episode_number}`, date: x.air_date || null, runtime: x.runtime || null })));
+const okScore = v => v === null || (Number.isInteger(v) && v >= 1 && v <= 10);
+
+app.get('/api/films/:id/seasons', async (req, res) => {
+  const tid = await tvTmdbId(req.params.id);
+  if (!tid) return res.json({ seasons: [] });
+  const list = await seasonList(req.params.id, tid);
+  if (!list) return res.status(502).json({ error: 'Не удалось получить список сезонов' });
+  const by = new Map((await pool.query(`select season, avg(score)::float srv, count(*)::int n, max(case when user_id = $2 then score end) mine
+    from season_ratings where film_id = $1 group by season`, [req.params.id, req.user?.id || ''])).rows.map(r => [r.season, r]));
+  res.json({ seasons: list.map(x => ({ ...x, srv: by.get(x.n)?.srv ?? null, count: by.get(x.n)?.n ?? 0, mine: by.get(x.n)?.mine ?? null })) });
+});
+app.get('/api/films/:id/seasons/:n', async (req, res) => {
+  const n = Number(req.params.n);
+  if (!Number.isInteger(n) || n < 0 || n > 99) return res.status(400).json({ error: 'Неверный запрос' });
+  const tid = await tvTmdbId(req.params.id);
+  if (!tid) return res.json({ episodes: [] });
+  const list = await episodeList(req.params.id, tid, n);
+  if (!list) return res.status(502).json({ error: 'Не удалось получить список серий' });
+  const by = new Map((await pool.query(`select episode, avg(score)::float srv, count(*)::int n, max(case when user_id = $3 then score end) mine
+    from episode_ratings where film_id = $1 and season = $2 group by episode`, [req.params.id, n, req.user?.id || ''])).rows.map(r => [r.episode, r]));
+  res.json({ episodes: list.map(x => ({ ...x, srv: by.get(x.e)?.srv ?? null, count: by.get(x.e)?.n ?? 0, mine: by.get(x.e)?.mine ?? null })) });
+});
+app.post('/api/films/:id/seasons/:n/rate', needUser, async (req, res) => {
+  const n = Number(req.params.n), score = req.body?.score;
+  if (!Number.isInteger(n) || n < 0 || n > 99 || !okScore(score)) return res.status(400).json({ error: 'Неверный запрос' });
+  const tid = await tvTmdbId(req.params.id), list = tid ? await seasonList(req.params.id, tid) : null;
+  if (!list || !list.some(x => x.n === n)) return res.status(404).json({ error: 'Такого сезона нет' });
+  await saveUser(req.user, null);
+  if (score === null) await pool.query('delete from season_ratings where film_id = $1 and season = $2 and user_id = $3', [req.params.id, n, req.user.id]);
+  else await pool.query(`insert into season_ratings(film_id, season, user_id, score) values ($1, $2, $3, $4)
+    on conflict (film_id, season, user_id) do update set score = excluded.score`, [req.params.id, n, req.user.id, score]);
+  const a = (await pool.query('select avg(score)::float srv, count(*)::int n from season_ratings where film_id = $1 and season = $2', [req.params.id, n])).rows[0];
+  res.json({ srv: a.srv, count: a.n, mine: score });
+});
+app.post('/api/films/:id/seasons/:n/episodes/:e/rate', needUser, async (req, res) => {
+  const n = Number(req.params.n), e = Number(req.params.e), score = req.body?.score;
+  if (!Number.isInteger(n) || n < 0 || n > 99 || !Number.isInteger(e) || e < 1 || e > 999 || !okScore(score)) return res.status(400).json({ error: 'Неверный запрос' });
+  const tid = await tvTmdbId(req.params.id), list = tid ? await episodeList(req.params.id, tid, n) : null;
+  if (!list || !list.some(x => x.e === e)) return res.status(404).json({ error: 'Такой серии нет' });
+  await saveUser(req.user, null);
+  if (score === null) await pool.query('delete from episode_ratings where film_id = $1 and season = $2 and episode = $3 and user_id = $4', [req.params.id, n, e, req.user.id]);
+  else await pool.query(`insert into episode_ratings(film_id, season, episode, user_id, score) values ($1, $2, $3, $4, $5)
+    on conflict (film_id, season, episode, user_id) do update set score = excluded.score`, [req.params.id, n, e, req.user.id, score]);
+  const a = (await pool.query('select avg(score)::float srv, count(*)::int n from episode_ratings where film_id = $1 and season = $2 and episode = $3', [req.params.id, n, e])).rows[0];
+  res.json({ srv: a.srv, count: a.n, mine: score });
 });
 
 app.post('/api/rate', needUser, async (req, res) => {
